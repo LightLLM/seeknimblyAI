@@ -96,9 +96,7 @@ export async function POST(req: NextRequest) {
         ...body.history!.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
         currentUserMessage,
       ]
-    : hasFiles
-      ? [currentUserMessage]
-      : userMessage;
+    : [currentUserMessage];
 
   const encoder = new TextEncoder();
   let accumulatedText = "";
