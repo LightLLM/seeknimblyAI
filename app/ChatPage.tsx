@@ -131,9 +131,10 @@ export function ChatPage() {
               fullText += ev.delta;
               setStreamingText(fullText);
             } else if (ev.type === "done" && typeof ev.text === "string") {
+              const doneText = ev.text;
               setMessages((prev) => [
                 ...prev,
-                { role: "assistant", content: ev.text, steps: steps.length ? [...steps] : undefined },
+                { role: "assistant", content: doneText, steps: steps.length ? [...steps] : undefined },
               ]);
               steps = [];
               setAgentSteps([]);
