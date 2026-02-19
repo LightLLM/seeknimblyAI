@@ -105,6 +105,8 @@ export async function POST(req: NextRequest) {
 
   const stream = new ReadableStream({
     async start(controller) {
+      // Send first byte immediately so Vercel treats response as streaming (avoids buffering)
+      controller.enqueue(encoder.encode(streamLine({ type: "step", id: "web_search", label: "Connecting…", status: "active" })));
       let sentFinal = false;
       const sendDone = (text: string) => {
         if (sentFinal) return;

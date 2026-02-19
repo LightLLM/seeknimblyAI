@@ -48,7 +48,7 @@ HR compliance chat MVP: chat with an assistant for North America (NA/CA/US) usin
 ## Deploy on Vercel
 
 1. **Environment variables**: In your Vercel project, set the same variables as in `.env.example` (e.g. `OPENAI_API_KEY`, `OPENAI_MODEL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `AUTH_EMAIL`, `AUTH_PASSWORD`). For production, set `NEXTAUTH_URL` to your Vercel URL (e.g. `https://your-app.vercel.app`).
-2. **Streaming**: The chat stream route uses `maxDuration = 60`; on the Hobby plan Vercel may cap this at 10s. If chat often shows “no response”, upgrade to Pro or reduce usage so responses finish within the limit.
+2. **Streaming**: The chat stream route uses `maxDuration = 60` (also set in `vercel.json`). If chat often shows “no response”, check **Vercel → Project → Settings → Environment Variables** and ensure `OPENAI_API_KEY` and `OPENAI_MODEL` (e.g. `gpt-4o`) are set for Production, then redeploy. Check **Deployments → Logs** for the stream function to see any errors.
 3. **File upload**: Request body is limited to ~4.5 MB on Vercel. The app limits uploads to **4 MB** per request. Keep files under 4 MB or upload one at a time.
 
 ## Chat API
