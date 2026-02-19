@@ -1,0 +1,12 @@
+# Local env (never deploy)
+.env
+.env.local
+.env.*.local
+
+# Logs and temp
+logs
+*.log
+install.log
+
+# Tests (optional: remove if you want tests in deploy context)
+__tests__
