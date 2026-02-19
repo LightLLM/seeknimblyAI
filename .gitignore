@@ -31,3 +31,4 @@ yarn-error.log*
 *.swp
 *.swo
 install.log
+.vercel

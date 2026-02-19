@@ -109,7 +109,12 @@ export async function POST(req: NextRequest) {
       const sendDone = (text: string) => {
         if (sentFinal) return;
         sentFinal = true;
-        const finalText = text.trim() ? (text.endsWith(DISCLAIMER) ? text.trim() : `${text.trim()}\n\n${DISCLAIMER}`) : "No response.";
+        let finalText: string;
+        if (text.trim()) {
+          finalText = text.endsWith(DISCLAIMER) ? text.trim() : `${text.trim()}\n\n${DISCLAIMER}`;
+        } else {
+          finalText = "No response from the model. Check OPENAI_API_KEY and OPENAI_MODEL in Vercel environment variables, or try again (request may have timed out).\n\n" + DISCLAIMER;
+        }
         controller.enqueue(encoder.encode(streamLine({ type: "done", text: finalText })));
       };
       const sendError = (error: string) => {
@@ -128,8 +133,8 @@ export async function POST(req: NextRequest) {
           stream: true,
         });
 
-        for await (const event of responseStream as AsyncIterable<{ type: string; delta?: string; text?: string }>) {
-          const ev = event as { type: string; delta?: string; text?: string };
+        for await (const event of responseStream as AsyncIterable<{ type: string; delta?: string; text?: string; response?: { output_text?: string }; error?: { message?: string } }>) {
+          const ev = event as { type: string; delta?: string; text?: string; response?: { output_text?: string }; error?: { message?: string } };
           switch (ev.type) {
             case "response.web_search_call.searching":
               controller.enqueue(encoder.encode(streamLine({ type: "step", id: "web_search", label: "Searching the web for current compliance information…", status: "active" })));
@@ -150,15 +155,27 @@ export async function POST(req: NextRequest) {
               if (typeof ev.text === "string") accumulatedText += ev.text;
               break;
             case "response.completed":
+              // Use full response text when present (handles buffered/reordered streams, e.g. on Vercel)
+              if (ev.response?.output_text != null && typeof ev.response.output_text === "string" && ev.response.output_text.trim()) {
+                accumulatedText = ev.response.output_text.trim();
+              }
+              break;
             case "response.done":
               break;
+            case "response.failed":
+              const failMsg = ev.error?.message ?? "Model request failed.";
+              sendError(failMsg);
+              return;
             default:
               break;
           }
         }
 
         const text = accumulatedText.trim();
-        sendDone(text ? text : "No response.");
+        if (!text) {
+          console.warn("[api/hr/stream] No text received from OpenAI stream. Check OPENAI_API_KEY, OPENAI_MODEL, and Vercel function duration.");
+        }
+        sendDone(text || "No response.");
       } catch (err) {
         const message = err instanceof Error ? err.message : "Request failed";
         console.error("[api/hr/stream]", message, err);
