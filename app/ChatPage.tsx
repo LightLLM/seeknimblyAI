@@ -60,6 +60,8 @@ export function ChatPage() {
   const [streamingText, setStreamingText] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<{ file: File; id: string }[]>([]);
+  const [documentText, setDocumentText] = useState("");
+  const [documentExpanded, setDocumentExpanded] = useState(false);
 
   // Desktop: sidebar expanded by default. Mobile: drawer closed by default.
   useEffect(() => {
@@ -69,6 +71,7 @@ export function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const documentFileInputRef = useRef<HTMLInputElement>(null);
 
   const refreshChatList = useCallback(() => {
     setChatListState(getChatList());
@@ -171,6 +174,7 @@ export function ChatPage() {
           jurisdiction,
           history,
           ...(fileIds.length > 0 && { file_ids: fileIds, file_filenames: fileFilenames }),
+          ...(documentText.trim() && { document_text: documentText.trim().slice(0, 12000) }),
         }),
         signal: ac.signal,
       });
@@ -264,7 +268,7 @@ export function ChatPage() {
       setAgentSteps([]);
       setStreamingText("");
     }
-  }, [input, loading, jurisdiction, messages, activeChatId, attachedFiles, refreshChatList]);
+  }, [input, loading, jurisdiction, messages, activeChatId, attachedFiles, documentText, refreshChatList]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -310,6 +314,15 @@ export function ChatPage() {
   const removeAttachedFile = (id: string) => {
     setAttachedFiles((prev) => prev.filter((a) => a.id !== id));
     setUploadError(null);
+  };
+
+  const handleDocumentFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !file.name.toLowerCase().endsWith(".txt")) return;
+    const reader = new FileReader();
+    reader.onload = () => setDocumentText((prev) => (prev ? prev + "\n\n" : "") + (reader.result as string));
+    reader.readAsText(file);
   };
 
   const currentChat = activeChatId ? getChat(activeChatId) : null;
@@ -459,6 +472,44 @@ export function ChatPage() {
               onChange={handleFileChange}
               aria-label="Attach files for analysis"
             />
+            <input
+              ref={documentFileInputRef}
+              type="file"
+              accept=".txt,text/plain"
+              className="hidden"
+              onChange={handleDocumentFileChange}
+              aria-label="Attach .txt as document for compliance check"
+            />
+            <div className="mb-2">
+              <button
+                type="button"
+                onClick={() => setDocumentExpanded((v) => !v)}
+                className="text-[13px] font-medium text-[var(--text-secondary)] hover:text-[var(--text)]"
+              >
+                {documentExpanded ? "− Document" : "+ Document"}
+              </button>
+              {documentExpanded && (
+                <div className="mt-2 space-y-1">
+                  <textarea
+                    value={documentText}
+                    onChange={(e) => setDocumentText(e.target.value)}
+                    placeholder="Paste policy or handbook text for compliance check (or attach .txt below)"
+                    rows={4}
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[13px] text-[var(--text)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] resize-y max-h-[200px]"
+                    disabled={loading}
+                  />
+                  <p className="text-[11px] text-[var(--text-tertiary)]">MVP: Only plain text. Paste or use a .txt file.</p>
+                  <button
+                    type="button"
+                    onClick={() => documentFileInputRef.current?.click()}
+                    disabled={loading}
+                    className="text-[12px] text-[var(--accent)] hover:underline"
+                  >
+                    Attach .txt
+                  </button>
+                </div>
+              )}
+            </div>
             {uploadError && (
               <p className="text-[13px] text-amber-400/90 mb-2">{uploadError}</p>
             )}

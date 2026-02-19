@@ -47,6 +47,7 @@ HR compliance chat MVP: chat with an assistant for North America (NA/CA/US) usin
 
 ## Deploy on Vercel
 
+0. **Before deploying**: Run tests and build locally: `npm test && npm run build`. Then push to GitHub; Vercel will build and deploy from your repo.
 1. **Environment variables**: In your Vercel project, set the same variables as in `.env.example` (e.g. `OPENAI_API_KEY`, `OPENAI_MODEL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `AUTH_EMAIL`, `AUTH_PASSWORD`). For production, set `NEXTAUTH_URL` to your Vercel URL (e.g. `https://your-app.vercel.app`).
 2. **Streaming**: The chat stream route uses `maxDuration = 60` (also set in `vercel.json`). If the stream returns no text (e.g. on Vercel), the route automatically retries with a non-streaming request and sends that response. If chat still shows “no response”, check **Vercel → Project → Settings → Environment Variables** for `OPENAI_API_KEY` and `OPENAI_MODEL` (e.g. `gpt-4o`) for Production, then redeploy. In **Deployments → Logs**, look for `[api/hr/stream]` to see whether the fallback ran or failed.
 3. **File upload**: Request body is limited to ~4.5 MB on Vercel. The app limits uploads to **4 MB** per request. Keep files under 4 MB or upload one at a time.
@@ -55,8 +56,34 @@ HR compliance chat MVP: chat with an assistant for North America (NA/CA/US) usin
 
 - **UI** uses **POST `/api/hr/stream`**: streaming NDJSON (text deltas, steps, then a final `done` or `error`). Requests time out after 90 seconds.
 - **POST `/api/hr`**: non-streaming JSON response `{ "text": "..." }`, useful for scripts and curl.
+- Optional body field **`document_text`** (string, max 12000 chars): when set, the backend may route to the compliance or policy-doc agent and return structured findings (Finding, Issues, Required Actions, Evidence, Risk Rating, Disclaimer).
+
+## How to use Compliance Check
+
+1. In the chat, click **"+ Document"** to expand the document panel.
+2. Paste policy or handbook text into the textarea, or use **Attach .txt** to load a plain-text file (MVP: only .txt is supported for document content).
+3. Ask a compliance-oriented question, for example:
+   - "Run a SOC2 compliance check"
+   - "What does our handbook say about overtime?"
+   - "Map this process to ISO 9001 controls"
+4. The system routes automatically to the right agent (general HR, compliance, policy-doc, or risk-controls) and returns structured answers when a document is present. Use the jurisdiction dropdown (NA / CA / US) for context; specify province or state when relevant.
 
 ## Testing
+
+### 0. Unit tests (Jest)
+
+Run the test suite:
+
+```bash
+npm test
+```
+
+Watch mode: `npm run test:watch`. Tests cover:
+
+- **`lib/rateLimit`** — `rateLimitKey`, `check`, `record` (rate limit after 20 requests).
+- **`lib/prompts`** — `getSystemPrompt` (NA/CA/US), `getRouterPrompt`, compliance/policy/risk agent prompts and disclaimer text.
+- **`lib/openai`** — `getOpenAIApiKey` (null when missing, strips Bearer/control chars), `getOpenAIModel` (default when env missing).
+- **`lib/agentRouter`** — `chooseAgent`: no document → general HR; document + compliance keywords → compliance/policy/risk agents; fallback when no API key.
 
 ### 1. HR compliance chat (in the browser)
 

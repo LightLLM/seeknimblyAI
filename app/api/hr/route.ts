@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { z } from "zod";
-import { getSystemPrompt, type Jurisdiction } from "@/lib/prompts";
+import {
+  getSystemPrompt,
+  getComplianceAgentPrompt,
+  getPolicyDocAgentPrompt,
+  getRiskControlsAgentPrompt,
+  COMPLIANCE_CHECK_QUESTION_INSTRUCTION,
+  type Jurisdiction,
+} from "@/lib/prompts";
 import { getOpenAIApiKey, getOpenAIModel } from "@/lib/openai";
 import { check, record, rateLimitKey } from "@/lib/rateLimit";
+import { chooseAgent, type AgentId } from "@/lib/agentRouter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +27,7 @@ const BODY_SCHEMA = z.object({
   history: z.array(HISTORY_ITEM).max(20).optional(),
   file_ids: z.array(z.string()).max(10).optional(),
   file_filenames: z.array(z.string()).max(10).optional(),
+  document_text: z.string().max(12000).optional(),
 });
 
 type Body = z.infer<typeof BODY_SCHEMA>;
@@ -80,16 +89,49 @@ export async function POST(req: NextRequest) {
 
   record(key);
 
-  const systemPrompt = getSystemPrompt(body.jurisdiction as Jurisdiction);
+  const docSummary = (body.document_text ?? "").trim().slice(0, 8000);
+  const hasDocument = docSummary.length > 0;
+
+  const routerResult = await chooseAgent({
+    message: body.message,
+    history: body.history ?? [],
+    hasDocument,
+  });
+  const agent: AgentId = routerResult.agent;
+  const jurisdiction = body.jurisdiction as Jurisdiction;
+  let systemPrompt: string;
+  switch (agent) {
+    case "compliance_agent":
+      systemPrompt = getComplianceAgentPrompt(jurisdiction);
+      if (hasDocument && (body.history?.length ?? 0) === 0) {
+        systemPrompt += "\n\n" + COMPLIANCE_CHECK_QUESTION_INSTRUCTION;
+      }
+      break;
+    case "policy_doc_agent":
+      systemPrompt = getPolicyDocAgentPrompt(jurisdiction);
+      break;
+    case "risk_controls_agent":
+      systemPrompt = getRiskControlsAgentPrompt(jurisdiction);
+      break;
+    default:
+      systemPrompt = getSystemPrompt(jurisdiction);
+  }
+
+  log("info", { ip, chosen_agent: agent, has_document: hasDocument, route: "hr" });
+
   const userMessage = body.message;
   const fileIds = body.file_ids ?? [];
   const hasFiles = fileIds.length > 0;
-  const currentUserContent: Array<{ type: "input_file"; file_id: string } | { type: "input_text"; text: string }> = hasFiles
+  const textForThisTurn = hasDocument
+    ? "Document context (for compliance check):\n" + docSummary + "\n\nUser message:\n" + userMessage
+    : userMessage;
+
+  const currentUserContent: Array<{ type: "input_file"; file_id: string } | { type: "input_text"; text: string }> = hasFiles && !hasDocument
     ? [
         ...fileIds.map((file_id) => ({ type: "input_file" as const, file_id })),
         { type: "input_text" as const, text: userMessage },
       ]
-    : [{ type: "input_text" as const, text: userMessage }];
+    : [{ type: "input_text" as const, text: textForThisTurn }];
   const currentUserMessage = { role: "user" as const, content: currentUserContent };
   const hasHistory = (body.history?.length ?? 0) > 0;
   const input = hasHistory
@@ -97,9 +139,9 @@ export async function POST(req: NextRequest) {
         ...body.history!.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
         currentUserMessage,
       ]
-    : hasFiles
-      ? [currentUserMessage]
-      : userMessage;
+    : [currentUserMessage];
+
+  const useWebSearch = agent === "general_hr_assistant";
 
   try {
     const openai = new OpenAI({ apiKey });
@@ -107,8 +149,8 @@ export async function POST(req: NextRequest) {
       model,
       instructions: systemPrompt,
       input,
-      max_output_tokens: 1024,
-      tools: [{ type: "web_search_preview" }],
+      max_output_tokens: 1536,
+      ...(useWebSearch ? { tools: [{ type: "web_search_preview" as const }] } : {}),
     });
 
     const text = response.output_text?.trim() ?? "";
