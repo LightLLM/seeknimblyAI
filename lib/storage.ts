@@ -1,9 +1,10 @@
 /**
- * localStorage helpers for chat transcript persistence.
+ * localStorage helpers for chat transcript and multi-conversation persistence.
  * Only use in client components (typeof window !== 'undefined').
  */
 
-const STORAGE_KEY = "seeknimbly_hr_chat";
+const OLD_STORAGE_KEY = "seeknimbly_hr_chat";
+const CHATS_STORAGE_KEY = "seeknimbly_hr_chats";
 
 export type AgentStep = {
   id: string;
@@ -16,44 +17,206 @@ export type ChatMessage = {
   content: string;
   /** Shown when assistant used multi-step reasoning (e.g. web search) */
   steps?: AgentStep[];
+  /** For user messages: display names of attached files (file_id not persisted long-term) */
+  attachments?: { name: string; fileId?: string }[];
 };
 
-export function getStoredTranscript(): ChatMessage[] {
-  if (typeof window === "undefined") return [];
+export type Chat = {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: number;
+  updatedAt?: number;
+};
+
+export type ChatsState = {
+  chats: Chat[];
+  activeId: string | null;
+};
+
+function generateId(): string {
+  return `chat_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function parseChatMessage(m: unknown): ChatMessage | null {
+  if (typeof m !== "object" || m === null) return null;
+  const r = (m as ChatMessage).role;
+  const c = (m as ChatMessage).content;
+  if (r !== "user" && r !== "assistant") return null;
+  if (typeof c !== "string") return null;
+  const steps = (m as ChatMessage).steps;
+  if (steps !== undefined && (!Array.isArray(steps) || steps.some((s) => typeof s?.id !== "string" || typeof s?.label !== "string"))) return null;
+  const attachments = (m as ChatMessage).attachments;
+  if (attachments !== undefined && (!Array.isArray(attachments) || attachments.some((a) => typeof a?.name !== "string"))) return null;
+  return m as ChatMessage;
+}
+
+function loadRaw(): ChatsState | null {
+  if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
+    const raw = localStorage.getItem(CHATS_STORAGE_KEY);
+    if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((m): m is ChatMessage => {
-      if (typeof m !== "object" || m === null) return false;
-      const r = (m as ChatMessage).role;
-      const c = (m as ChatMessage).content;
-      if (r !== "user" && r !== "assistant") return false;
-      if (typeof c !== "string") return false;
-      const steps = (m as ChatMessage).steps;
-      if (steps !== undefined && (!Array.isArray(steps) || steps.some((s) => typeof s?.id !== "string" || typeof s?.label !== "string"))) return false;
+    if (!parsed || typeof parsed !== "object") return null;
+    const { chats, activeId } = parsed as { chats?: unknown; activeId?: unknown };
+    if (!Array.isArray(chats)) return null;
+    const validChats: Chat[] = chats.filter((c): c is Chat => {
+      if (typeof c !== "object" || c === null) return false;
+      if (typeof (c as Chat).id !== "string" || typeof (c as Chat).title !== "string") return false;
+      if (!Array.isArray((c as Chat).messages)) return false;
+      if (typeof (c as Chat).createdAt !== "number") return false;
+      (c as Chat).messages = (c as Chat).messages.filter((m): m is ChatMessage => parseChatMessage(m) !== null) as ChatMessage[];
       return true;
     });
+    const id = activeId === null || activeId === undefined ? null : typeof activeId === "string" ? activeId : null;
+    return { chats: validChats, activeId: id };
   } catch {
-    return [];
+    return null;
   }
 }
 
-export function setStoredTranscript(messages: ChatMessage[]): void {
+function saveRaw(state: ChatsState): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
-  } catch {
-    // ignore quota or other storage errors
-  }
-}
-
-export function clearStoredTranscript(): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.setItem(CHATS_STORAGE_KEY, JSON.stringify(state));
   } catch {
     // ignore
   }
+}
+
+/** Migrate from old single-transcript key into one chat and set active. */
+function migrateFromLegacy(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = localStorage.getItem(OLD_STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return false;
+    const messages = parsed.filter((m): m is ChatMessage => parseChatMessage(m) !== null) as ChatMessage[];
+    if (messages.length === 0) return false;
+    const id = generateId();
+    const firstUser = messages.find((m) => m.role === "user");
+    const title = firstUser ? firstUser.content.slice(0, 40).trim() || "New chat" : "New chat";
+    const chat: Chat = { id, title, messages, createdAt: Date.now(), updatedAt: Date.now() };
+    const state: ChatsState = { chats: [chat], activeId: id };
+    saveRaw(state);
+    localStorage.removeItem(OLD_STORAGE_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function getChatList(): Chat[] {
+  let state = loadRaw();
+  if (!state) {
+    if (migrateFromLegacy()) state = loadRaw();
+    if (!state) return [];
+  }
+  return state.chats.slice().sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt));
+}
+
+export function getActiveChatId(): string | null {
+  let state = loadRaw();
+  if (!state) {
+    if (migrateFromLegacy()) state = loadRaw();
+    if (!state) return null;
+  }
+  return state.activeId;
+}
+
+export function getChat(id: string): Chat | null {
+  const state = loadRaw();
+  if (!state) return null;
+  return state.chats.find((c) => c.id === id) ?? null;
+}
+
+export function setChat(id: string, payload: Partial<Omit<Chat, "id">>): void {
+  const state = loadRaw();
+  if (!state) {
+    const chats: Chat[] = [];
+    const existing = payload as Partial<Chat>;
+    const chat: Chat = {
+      id,
+      title: existing.title ?? "New chat",
+      messages: existing.messages ?? [],
+      createdAt: existing.createdAt ?? Date.now(),
+      updatedAt: Date.now(),
+    };
+    saveRaw({ chats: [chat], activeId: id });
+    return;
+  }
+  const idx = state.chats.findIndex((c) => c.id === id);
+  const now = Date.now();
+  if (idx >= 0) {
+    state.chats[idx] = { ...state.chats[idx], ...payload, id, updatedAt: now };
+  } else {
+    state.chats.push({
+      id,
+      title: (payload.title as string) ?? "New chat",
+      messages: (payload.messages as ChatMessage[]) ?? [],
+      createdAt: (payload.createdAt as number) ?? now,
+      updatedAt: now,
+    });
+  }
+  saveRaw(state);
+}
+
+export function createChat(): string {
+  const id = generateId();
+  const state = loadRaw();
+  const chat: Chat = { id, title: "New chat", messages: [], createdAt: Date.now() };
+  if (state) {
+    state.chats.unshift(chat);
+    state.activeId = id;
+    saveRaw(state);
+  } else {
+    saveRaw({ chats: [chat], activeId: id });
+  }
+  return id;
+}
+
+export function deleteChat(id: string): void {
+  const state = loadRaw();
+  if (!state) return;
+  state.chats = state.chats.filter((c) => c.id !== id);
+  if (state.activeId === id) state.activeId = state.chats[0]?.id ?? null;
+  saveRaw(state);
+}
+
+export function setActiveChatId(id: string | null): void {
+  const state = loadRaw();
+  if (!state) {
+    if (id) {
+      const chat = getChat(id);
+      if (chat) saveRaw({ chats: [chat], activeId: id });
+    }
+    return;
+  }
+  state.activeId = id;
+  saveRaw(state);
+}
+
+// Legacy helpers: map to active chat for backward compatibility
+export function getStoredTranscript(): ChatMessage[] {
+  const activeId = getActiveChatId();
+  if (!activeId) return [];
+  const chat = getChat(activeId);
+  return chat?.messages ?? [];
+}
+
+export function setStoredTranscript(messages: ChatMessage[]): void {
+  const activeId = getActiveChatId();
+  if (activeId) {
+    setChat(activeId, { messages, updatedAt: Date.now() });
+    return;
+  }
+  const id = createChat();
+  setChat(id, { messages, title: messages.length ? (messages.find((m) => m.role === "user")?.content.slice(0, 40).trim() || "New chat") : "New chat", updatedAt: Date.now() });
+  setActiveChatId(id);
+}
+
+export function clearStoredTranscript(): void {
+  const activeId = getActiveChatId();
+  if (activeId) setChat(activeId, { messages: [], updatedAt: Date.now() });
 }

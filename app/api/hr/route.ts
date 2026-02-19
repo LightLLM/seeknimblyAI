@@ -13,6 +13,8 @@ const BODY_SCHEMA = z.object({
   message: z.string().min(1, "Message is required").max(8000, "Message too long"),
   jurisdiction: z.enum(["NA", "CA", "US"]),
   history: z.array(HISTORY_ITEM).max(20).optional(),
+  file_ids: z.array(z.string()).max(10).optional(),
+  file_filenames: z.array(z.string()).max(10).optional(),
 });
 
 type Body = z.infer<typeof BODY_SCHEMA>;
@@ -76,15 +78,25 @@ export async function POST(req: NextRequest) {
 
   const systemPrompt = getSystemPrompt(body.jurisdiction as Jurisdiction);
   const userMessage = body.message;
-
-  // Build input: optional conversation history + current user message
+  const fileIds = body.file_ids ?? [];
+  const fileFilenames = body.file_filenames ?? [];
+  const hasFiles = fileIds.length > 0;
+  const currentUserContent: Array<{ type: "input_file"; file_id: string; filename?: string } | { type: "input_text"; text: string }> = hasFiles
+    ? [
+        ...fileIds.map((file_id, i) => ({ type: "input_file" as const, file_id, filename: fileFilenames[i] })),
+        { type: "input_text" as const, text: userMessage },
+      ]
+    : [{ type: "input_text" as const, text: userMessage }];
+  const currentUserMessage = { role: "user" as const, content: currentUserContent };
   const hasHistory = (body.history?.length ?? 0) > 0;
   const input = hasHistory
     ? [
         ...body.history!.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-        { role: "user" as const, content: userMessage },
+        currentUserMessage,
       ]
-    : userMessage;
+    : hasFiles
+      ? [currentUserMessage]
+      : userMessage;
 
   try {
     const openai = new OpenAI({ apiKey });
