@@ -85,6 +85,18 @@ export async function POST(req: NextRequest) {
 
   const stream = new ReadableStream({
     async start(controller) {
+      let sentFinal = false;
+      const sendDone = (text: string) => {
+        if (sentFinal) return;
+        sentFinal = true;
+        const finalText = text.trim() ? (text.endsWith(DISCLAIMER) ? text.trim() : `${text.trim()}\n\n${DISCLAIMER}`) : "No response.";
+        controller.enqueue(encoder.encode(streamLine({ type: "done", text: finalText })));
+      };
+      const sendError = (error: string) => {
+        if (sentFinal) return;
+        sentFinal = true;
+        controller.enqueue(encoder.encode(streamLine({ type: "error", error })));
+      };
       try {
         const openai = new OpenAI({ apiKey });
         const responseStream = await openai.responses.create({
@@ -126,12 +138,13 @@ export async function POST(req: NextRequest) {
         }
 
         const text = accumulatedText.trim();
-        const finalText = text ? (text.endsWith(DISCLAIMER) ? text : `${text}\n\n${DISCLAIMER}`) : "No response.";
-        controller.enqueue(encoder.encode(streamLine({ type: "done", text: finalText })));
+        sendDone(text ? text : "No response.");
       } catch (err) {
         const message = err instanceof Error ? err.message : "Request failed";
-        controller.enqueue(encoder.encode(streamLine({ type: "error", error: message })));
+        console.error("[api/hr/stream]", message, err);
+        sendError(message);
       } finally {
+        if (!sentFinal) sendDone(accumulatedText);
         controller.close();
       }
     },

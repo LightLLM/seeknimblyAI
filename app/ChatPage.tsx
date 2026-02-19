@@ -84,13 +84,19 @@ export function ChatPage() {
     setAgentSteps([]);
     setStreamingText("");
 
+    const FETCH_TIMEOUT_MS = 90_000;
+    const ac = new AbortController();
+    const timeoutId = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
+
     try {
       const history = messages.slice(-20);
       const res = await fetch("/api/hr/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, jurisdiction, history }),
+        signal: ac.signal,
       });
+      clearTimeout(timeoutId);
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -98,6 +104,7 @@ export function ChatPage() {
         setMessages((prev) => [...prev, { role: "assistant", content: `[Error] ${errMsg}` }]);
         setError(errMsg);
         setLoading(false);
+        clearTimeout(timeoutId);
         return;
       }
 
@@ -105,6 +112,7 @@ export function ChatPage() {
       if (!reader) {
         setMessages((prev) => [...prev, { role: "assistant", content: "[Error] No response stream." }]);
         setLoading(false);
+        clearTimeout(timeoutId);
         return;
       }
 
@@ -112,6 +120,7 @@ export function ChatPage() {
       let buffer = "";
       let steps: AgentStep[] = [];
       let fullText = "";
+      let gotDone = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -131,6 +140,7 @@ export function ChatPage() {
               fullText += ev.delta;
               setStreamingText(fullText);
             } else if (ev.type === "done" && typeof ev.text === "string") {
+              gotDone = true;
               const doneText = ev.text;
               setMessages((prev) => [
                 ...prev,
@@ -148,11 +158,23 @@ export function ChatPage() {
           }
         }
       }
-    } catch {
-      const errMsg = "Network error. Please check your connection and try again.";
+
+      if (!gotDone && fullText.trim()) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: fullText.trim(), steps: steps.length ? [...steps] : undefined },
+        ]);
+      }
+    } catch (e) {
+      clearTimeout(timeoutId);
+      const isAbort = e instanceof Error && e.name === "AbortError";
+      const errMsg = isAbort
+        ? "Request timed out. Please try again."
+        : "Network error. Please check your connection and try again.";
       setMessages((prev) => [...prev, { role: "assistant", content: `[Error] ${errMsg}` }]);
       setError(errMsg);
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
       setAgentSteps([]);
       setStreamingText("");
