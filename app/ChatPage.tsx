@@ -16,7 +16,7 @@ import {
 import { Sidebar } from "./Sidebar";
 
 const MAX_MESSAGE_LENGTH = 8000;
-const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024; // 8 MB
+const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB (Vercel serverless limit ~4.5 MB)
 const ACCEPT_FILE_TYPES = "application/pdf,.txt,.md,.csv,image/jpeg,image/png,image/gif,image/webp";
 const JURISDICTIONS = ["NA", "CA", "US"] as const;
 type Jurisdiction = (typeof JURISDICTIONS)[number];
@@ -517,7 +517,7 @@ export function ChatPage() {
               </button>
             </div>
             <p className="mt-2 text-[11px] text-[var(--text-tertiary)]">
-              Enter to send · Shift+Enter for new line · Attach PDF, text, images, or CSV (max 8 MB)
+              Enter to send · Shift+Enter for new line · Attach PDF, text, images, or CSV (max 4 MB)
             </p>
           </div>
         </footer>

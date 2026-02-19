@@ -45,6 +45,12 @@ HR compliance chat MVP: chat with an assistant for North America (NA/CA/US) usin
 
 4. Open [http://localhost:3000](http://localhost:3000). **Sign in** with the email and password set in `AUTH_EMAIL` and `AUTH_PASSWORD`. Then use the jurisdiction dropdown (NA/CA/US), type a question, and send. Replies stream in with optional “Compliance reasoning” steps. Chat is persisted in `localStorage`; use **New chat** to clear. Use **Sign out** in the header to log out.
 
+## Deploy on Vercel
+
+1. **Environment variables**: In your Vercel project, set the same variables as in `.env.example` (e.g. `OPENAI_API_KEY`, `OPENAI_MODEL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `AUTH_EMAIL`, `AUTH_PASSWORD`). For production, set `NEXTAUTH_URL` to your Vercel URL (e.g. `https://your-app.vercel.app`).
+2. **Streaming**: The chat stream route uses `maxDuration = 60`; on the Hobby plan Vercel may cap this at 10s. If chat often shows “no response”, upgrade to Pro or reduce usage so responses finish within the limit.
+3. **File upload**: Request body is limited to ~4.5 MB on Vercel. The app limits uploads to **4 MB** per request. Keep files under 4 MB or upload one at a time.
+
 ## Chat API
 
 - **UI** uses **POST `/api/hr/stream`**: streaming NDJSON (text deltas, steps, then a final `done` or `error`). Requests time out after 90 seconds.

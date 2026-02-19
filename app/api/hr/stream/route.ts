@@ -4,6 +4,10 @@ import { z } from "zod";
 import { getSystemPrompt, type Jurisdiction } from "@/lib/prompts";
 import { check, record, rateLimitKey } from "@/lib/rateLimit";
 
+// Allow stream to run long enough for OpenAI (Vercel: 60s on Pro; Hobby may need smaller)
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
 const HISTORY_ITEM = z.object({
   role: z.enum(["user", "assistant"]),
   content: z.string().max(8000),
@@ -169,8 +173,9 @@ export async function POST(req: NextRequest) {
   return new NextResponse(stream, {
     headers: {
       "Content-Type": "application/x-ndjson",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-store",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }

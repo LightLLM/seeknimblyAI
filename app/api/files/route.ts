@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
-const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024; // 8 MB
+// Keep under Vercel serverless request body limit (4.5 MB)
+const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB
 const ALLOWED_TYPES = new Set([
   "application/pdf",
   "text/plain",
@@ -12,6 +13,9 @@ const ALLOWED_TYPES = new Set([
   "image/gif",
   "image/webp",
 ]);
+
+export const maxDuration = 30;
+export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -25,9 +29,10 @@ export async function POST(req: NextRequest) {
   let formData: FormData;
   try {
     formData = await req.formData();
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Invalid multipart body.";
     return NextResponse.json(
-      { error: "Invalid multipart body." },
+      { error: msg },
       { status: 400 }
     );
   }
@@ -44,10 +49,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  let totalBytes = 0;
   for (const file of files) {
+    totalBytes += file.size;
     if (file.size > MAX_FILE_SIZE_BYTES) {
       return NextResponse.json(
-        { error: `File "${file.name}" exceeds 8 MB limit.` },
+        { error: `File "${file.name}" exceeds 4 MB limit. (Vercel allows ~4.5 MB total.)` },
         { status: 413 }
       );
     }
@@ -60,14 +67,24 @@ export async function POST(req: NextRequest) {
       );
     }
   }
+  if (totalBytes > MAX_FILE_SIZE_BYTES) {
+    return NextResponse.json(
+      { error: "Total upload size exceeds 4 MB. Upload fewer or smaller files." },
+      { status: 413 }
+    );
+  }
 
   const openai = new OpenAI({ apiKey });
   const results: { file_id: string; filename: string }[] = [];
 
   for (const file of files) {
     try {
+      // In Vercel serverless, FormData File may not work with the SDK; use Buffer + File
+      const bytes = await file.arrayBuffer();
+      const buffer = Buffer.from(bytes);
+      const fileForApi = new File([buffer], file.name, { type: file.type || "application/octet-stream" });
       const uploaded = await openai.files.create({
-        file: file as unknown as File,
+        file: fileForApi,
         purpose: "user_data",
       });
       results.push({ file_id: uploaded.id, filename: file.name });
