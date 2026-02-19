@@ -193,29 +193,45 @@ export async function executeTool(
       const stack = (args.core_stack as string) ?? "Java, Go, Python, Node; AWS/GCP; Docker/Kubernetes";
       const workModel = (args.work_model as string) ?? "hybrid";
       const mustHaves = (args.must_haves as string) ?? "none specified";
-      const workflow = `I can't compile or hand you a list of specific people as "candidates" (names/links/handles) from ${loc}. What I can do is (1) run the sourcing searches and (2) give you an exact, copy/paste workflow + boolean strings so you can pull 5+ candidates immediately in your own accounts/tools, plus a scorecard to shortlist them quickly.
+      const locGTA = loc === "Toronto" ? "Greater Toronto Area" : loc;
+      const isML = /kubeflow|mlflow|mlops|ml platform|machine learning infrastructure|model serving|ML engineer|ML Engineer/i.test(job + " " + stack);
+      const urlExtraction = `
+How to pull LinkedIn profile links from Google X-Ray results (repeatable)
+1) Run the Google X-Ray query below in Google search.
+2) Copy LinkedIn profile links from the results: right-click the result title → Copy link address, or click the result and copy the URL from the address bar.
+3) (Optional) Filter to clean public profile URLs: keep only https://www.linkedin.com/in/<handle>/ and exclude .../jobs/, .../learning/, .../company/, .../posts/
+4) Faster extraction: After searching, click Tools → set results to Verbatim (reduces Google rewriting your terms). You can use a "SERP URL extractor" extension to export result URLs if allowed by your org's policies.`;
+      const backendXray = `B) Google X-ray for LinkedIn (${loc})\nsite:linkedin.com/in ("${locGTA}" OR ${loc}) ("Backend Engineer" OR "Software Engineer")\n(AWS OR GCP OR Azure) (Kubernetes OR Docker) (Java OR Go OR Python OR Node)`;
+      const mlXray = isML
+        ? `
+
+D) Google X-Ray for MLOps / ML platform (${loc}) — paste into Google
+site:linkedin.com/in (Kubeflow OR "KubeFlow") ("MLflow" OR "ML Flow") (MLOps OR "ml platform" OR "machine learning infrastructure" OR "model serving") (${loc} OR "${locGTA}" OR GTA) -jobs -learning -recruiter -talent -intern -student
+Use the same steps above to copy and filter LinkedIn profile URLs. If you want GitHub links for the same skill stack (Kubeflow + MLflow, ${loc}), say so and I can give you an X-Ray that returns both LinkedIn + GitHub profiles.`
+        : "";
+      const workflow = `I can't compile or hand you a curated list of specific individuals' LinkedIn profile links. What I can do is (1) give you exact, copy/paste X-Ray and boolean strings so you can pull 5+ candidates yourself, and (2) show you how to pull LinkedIn URLs from the results in a repeatable way.
 
 Before I tailor the strings, answer these 4 items (one line each is fine):
 - Seniority: Intermediate / Senior / Staff? (you said: ${seniority})
-- Core stack: (e.g., Java+Spring, Go, Python, Node; AWS/GCP; Kafka, etc.) (you said: ${stack})
+- Core stack: (e.g., Java+Spring, Go, Python, Node; Kubeflow, MLflow, MLOps, etc.) (you said: ${stack})
 - Work model: onsite ${loc} / hybrid / remote? (you said: ${workModel})
 - Any must-haves: (years, domain, security clearance, fintech, etc.) (you said: ${mustHaves})
 
-Ready-to-run default searches (${loc}, general ${job})
+Ready-to-run searches (${loc}, ${job})
 
-A) LinkedIn boolean (paste into LinkedIn search bar; set Location = Greater ${loc} Area)
+A) LinkedIn boolean (paste into LinkedIn search bar; set Location = Greater ${locGTA})
 ("backend engineer" OR "software engineer" OR "backend developer" OR "server-side")
 AND (API OR microservices OR "distributed systems")
 AND (AWS OR GCP OR Azure OR Kubernetes OR Docker)
 AND (Java OR Go OR Golang OR Python OR Node OR "C#")
 NOT (intern OR internship OR "front end" OR frontend OR "full stack" OR "mobile")
-Filters: Location = Greater ${loc} Area; Experience = 3–8 years (intermediate) or 5–12 (senior).
+Filters: Location = Greater ${locGTA}; Experience = 3–8 years (intermediate) or 5–12 (senior).
 
-B) Google X-ray for LinkedIn (set Location = ${loc})
-site:linkedin.com/in ("Greater ${loc} Area" OR ${loc}) ("Backend Engineer" OR "Software Engineer")
-(AWS OR GCP OR Azure) (Kubernetes OR Docker) (Java OR Go OR Python OR Node)
+${backendXray}
 
 C) GitHub: location:${loc} (language:Go OR language:Java OR language:Python OR language:TypeScript). Shortlist: recent commits, production-style repos (tests, CI, README), API/microservices projects.
+${mlXray}
+${urlExtraction}
 
 10-minute shortlist scorecard (0–2 points per line, max 10)
 - Backend language depth (Go/Java/Python/Node)
