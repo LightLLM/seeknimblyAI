@@ -56,6 +56,27 @@ HR compliance chat MVP: chat with an assistant for North America (NA/CA/US) usin
 - **UI** uses **POST `/api/hr/stream`**: streaming NDJSON (text deltas, steps, then a final `done` or `error`). Requests time out after 90 seconds.
 - **POST `/api/hr`**: non-streaming JSON response `{ "text": "..." }`, useful for scripts and curl.
 
+## Testing
+
+### 1. HR compliance chat (in the browser)
+
+1. Run `npm run dev` and open http://localhost:3000.
+2. Sign in with `AUTH_EMAIL` / `AUTH_PASSWORD`.
+3. Pick a jurisdiction (NA / CA / US), type a question (e.g. "What is minimum wage in Ontario?"), and send. You should see streaming text and optional "Compliance reasoning" steps. Try attaching a PDF or image.
+
+### 2. HR stream from the command line
+
+With the dev server running: `node scripts/test-stream.mjs`. To test production: `BASE_URL=https://seeknimblyai.vercel.app node scripts/test-stream.mjs`.
+
+### 3. Recruitment agent (no UI yet)
+
+The agent is at **POST `/api/agent/stream`**. Test with:
+
+- **Script:** `node scripts/test-agent-stream.mjs` (dev server running).
+- **curl:** `curl -N -X POST http://localhost:3000/api/agent/stream -H "Content-Type: application/json" -d "{\"message\": \"Find me 5 backend engineers in Toronto.\", \"params\": {\"job_title\": \"Backend Engineer\", \"location\": \"Toronto\"}}"`
+
+Response is NDJSON: `{"type":"step",...}` then `{"type":"done","text":"..."}`. For MLOps workflows try: "I need Kubeflow and MLflow candidates in Toronto".
+
 ## Test `/api/hr` with curl
 
 ```bash

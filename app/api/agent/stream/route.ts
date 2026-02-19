@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
             model,
             messages,
             tools: AGENT_TOOLS,
-            max_tokens: 1024,
+            max_completion_tokens: 1024,
           });
 
           const choice = response.choices?.[0];
