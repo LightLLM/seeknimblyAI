@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { getOpenAIApiKey } from "@/lib/openai";
 
 // Keep under Vercel serverless request body limit (4.5 MB)
 const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB
@@ -14,12 +15,13 @@ const ALLOWED_TYPES = new Set([
   "image/webp",
 ]);
 
+export const runtime = "nodejs";
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey?.trim()) {
+  const apiKey = getOpenAIApiKey();
+  if (!apiKey) {
     return NextResponse.json(
       { error: "Server configuration error: OpenAI API key not configured." },
       { status: 500 }

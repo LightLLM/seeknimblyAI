@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:stream": "node scripts/test-stream.mjs"
+    "test:stream": "node scripts/test-stream.mjs",
+    "list-models": "node scripts/list-models.mjs"
   },
   "dependencies": {
     "next": "14.2.18",

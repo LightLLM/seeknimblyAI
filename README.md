@@ -48,7 +48,7 @@ HR compliance chat MVP: chat with an assistant for North America (NA/CA/US) usin
 ## Deploy on Vercel
 
 1. **Environment variables**: In your Vercel project, set the same variables as in `.env.example` (e.g. `OPENAI_API_KEY`, `OPENAI_MODEL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `AUTH_EMAIL`, `AUTH_PASSWORD`). For production, set `NEXTAUTH_URL` to your Vercel URL (e.g. `https://your-app.vercel.app`).
-2. **Streaming**: The chat stream route uses `maxDuration = 60` (also set in `vercel.json`). If chat often shows “no response”, check **Vercel → Project → Settings → Environment Variables** and ensure `OPENAI_API_KEY` and `OPENAI_MODEL` (e.g. `gpt-4o`) are set for Production, then redeploy. Check **Deployments → Logs** for the stream function to see any errors.
+2. **Streaming**: The chat stream route uses `maxDuration = 60` (also set in `vercel.json`). If the stream returns no text (e.g. on Vercel), the route automatically retries with a non-streaming request and sends that response. If chat still shows “no response”, check **Vercel → Project → Settings → Environment Variables** for `OPENAI_API_KEY` and `OPENAI_MODEL` (e.g. `gpt-4o`) for Production, then redeploy. In **Deployments → Logs**, look for `[api/hr/stream]` to see whether the fallback ran or failed.
 3. **File upload**: Request body is limited to ~4.5 MB on Vercel. The app limits uploads to **4 MB** per request. Keep files under 4 MB or upload one at a time.
 
 ## Chat API
@@ -131,4 +131,4 @@ README.md
 
 ## Notes
 
-- **DEP0169 / `url.parse()` deprecation**: You may see a Node warning: “DeprecationWarning: `url.parse()` behavior is not standardized… Use the WHATWG URL API instead.” This comes from dependencies (e.g. next-auth’s openid-client), not from this app’s code. It does not affect chat or auth. To hide it when running locally, use: `NODE_OPTIONS=--no-deprecation npm run dev` (on Windows PowerShell: `$env:NODE_OPTIONS="--no-deprecation"; npm run dev`).
+- **DEP0169 / `url.parse()` deprecation**: You may see a Node warning: “DeprecationWarning: `url.parse()` behavior is not standardized… Use the WHATWG URL API instead.” This comes from dependencies (e.g. Next.js, next-auth’s openid-client), not from this app’s code. It does not affect chat or auth. To hide it: **locally** use `NODE_OPTIONS=--no-deprecation npm run dev` (PowerShell: `$env:NODE_OPTIONS="--no-deprecation"; npm run dev`); **on Vercel** add an environment variable `NODE_OPTIONS` = `--disable-warning=DEP0169` in Project → Settings → Environment Variables, then redeploy.

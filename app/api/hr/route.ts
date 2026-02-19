@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { z } from "zod";
 import { getSystemPrompt, type Jurisdiction } from "@/lib/prompts";
+import { getOpenAIApiKey, getOpenAIModel } from "@/lib/openai";
 import { check, record, rateLimitKey } from "@/lib/rateLimit";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const HISTORY_ITEM = z.object({
   role: z.enum(["user", "assistant"]),
@@ -63,10 +67,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL ?? "gpt-5";
+  const apiKey = getOpenAIApiKey();
+  const model = getOpenAIModel("gpt-5");
 
-  if (!apiKey?.trim()) {
+  if (!apiKey) {
     log("error", { ip, event: "missing_openai_key", route: "hr" });
     return NextResponse.json(
       { error: "Server configuration error: OpenAI API key not configured." },
@@ -79,11 +83,10 @@ export async function POST(req: NextRequest) {
   const systemPrompt = getSystemPrompt(body.jurisdiction as Jurisdiction);
   const userMessage = body.message;
   const fileIds = body.file_ids ?? [];
-  const fileFilenames = body.file_filenames ?? [];
   const hasFiles = fileIds.length > 0;
-  const currentUserContent: Array<{ type: "input_file"; file_id: string; filename?: string } | { type: "input_text"; text: string }> = hasFiles
+  const currentUserContent: Array<{ type: "input_file"; file_id: string } | { type: "input_text"; text: string }> = hasFiles
     ? [
-        ...fileIds.map((file_id, i) => ({ type: "input_file" as const, file_id, filename: fileFilenames[i] })),
+        ...fileIds.map((file_id) => ({ type: "input_file" as const, file_id })),
         { type: "input_text" as const, text: userMessage },
       ]
     : [{ type: "input_text" as const, text: userMessage }];

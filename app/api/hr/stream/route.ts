@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { z } from "zod";
 import { getSystemPrompt, type Jurisdiction } from "@/lib/prompts";
+import { getOpenAIApiKey, getOpenAIModel } from "@/lib/openai";
 import { check, record, rateLimitKey } from "@/lib/rateLimit";
 
+// Node runtime: more reliable for OpenAI streaming than Edge (avoids timeout/parsing issues)
+export const runtime = "nodejs";
 // Allow stream to run long enough for OpenAI (Vercel: 60s on Pro; Hobby may need smaller)
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -64,10 +67,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o";
+  const apiKey = getOpenAIApiKey();
+  const model = getOpenAIModel("gpt-4o");
 
-  if (!apiKey?.trim()) {
+  if (!apiKey) {
     return NextResponse.json(
       { error: "Server configuration error: OpenAI API key not configured." },
       { status: 500 }
@@ -79,12 +82,12 @@ export async function POST(req: NextRequest) {
   const systemPrompt = getSystemPrompt(body.jurisdiction as Jurisdiction);
   const userMessage = body.message;
   const fileIds = body.file_ids ?? [];
-  const fileFilenames = body.file_filenames ?? [];
   const hasFiles = fileIds.length > 0;
 
-  const currentUserContent: Array<{ type: "input_file"; file_id: string; filename?: string } | { type: "input_text"; text: string }> = hasFiles
+  // API allows only one of file_id or filename per input_file; use file_id (file already uploaded).
+  const currentUserContent: Array<{ type: "input_file"; file_id: string } | { type: "input_text"; text: string }> = hasFiles
     ? [
-        ...fileIds.map((file_id, i) => ({ type: "input_file" as const, file_id, filename: fileFilenames[i] })),
+        ...fileIds.map((file_id) => ({ type: "input_file" as const, file_id })),
         { type: "input_text" as const, text: userMessage },
       ]
     : [{ type: "input_text" as const, text: userMessage }];
@@ -113,7 +116,7 @@ export async function POST(req: NextRequest) {
         if (text.trim()) {
           finalText = text.endsWith(DISCLAIMER) ? text.trim() : `${text.trim()}\n\n${DISCLAIMER}`;
         } else {
-          finalText = "No response from the model. Check OPENAI_API_KEY and OPENAI_MODEL in Vercel environment variables, or try again (request may have timed out).\n\n" + DISCLAIMER;
+          finalText = "No text received from OpenAI stream. Check OPENAI_API_KEY, OPENAI_MODEL, and Vercel function duration (Settings → Functions).\n\n" + DISCLAIMER;
         }
         controller.enqueue(encoder.encode(streamLine({ type: "done", text: finalText })));
       };
@@ -171,9 +174,30 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        const text = accumulatedText.trim();
+        let text = accumulatedText.trim();
         if (!text) {
-          console.warn("[api/hr/stream] No text received from OpenAI stream. Check OPENAI_API_KEY, OPENAI_MODEL, and Vercel function duration.");
+          console.warn("[api/hr/stream] No text received from OpenAI stream. Trying non-streaming fallback.");
+          controller.enqueue(encoder.encode(streamLine({ type: "step", id: "fallback", label: "Getting response…", status: "active" })));
+          try {
+            const fallback = await openai.responses.create({
+              model,
+              instructions: systemPrompt,
+              input,
+              max_output_tokens: 1024,
+              tools: [{ type: "web_search_preview" }],
+              stream: false,
+            });
+            const fallbackText = (fallback as { output_text?: string }).output_text?.trim();
+            if (fallbackText) {
+              text = fallbackText;
+              console.warn("[api/hr/stream] Fallback (non-streaming) succeeded; stream had returned no text.");
+            } else {
+              console.warn("[api/hr/stream] Fallback response had no output_text.");
+            }
+          } catch (fallbackErr) {
+            const msg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+            console.warn("[api/hr/stream] Fallback request failed:", msg, fallbackErr);
+          }
         }
         sendDone(text || "No response.");
       } catch (err) {

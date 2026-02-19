@@ -60,6 +60,11 @@ export function ChatPage() {
   const [streamingText, setStreamingText] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<{ file: File; id: string }[]>([]);
+
+  // Desktop: sidebar expanded by default. Mobile: drawer closed by default.
+  useEffect(() => {
+    if (window.matchMedia("(min-width: 768px)").matches) setSidebarOpen(true);
+  }, []);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -330,7 +335,7 @@ export function ChatPage() {
           onNewChat={handleNewChat}
           onSelectChat={handleSelectChat}
           onCloseSidebar={() => setSidebarOpen(false)}
-          collapsed={false}
+          collapsed={!sidebarOpen}
           onToggleCollapsed={() => setSidebarOpen((v) => !v)}
         />
       </div>
@@ -340,7 +345,7 @@ export function ChatPage() {
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
-              className="md:hidden p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface)]"
+              className="p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface)]"
               aria-label="Open chat list"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
