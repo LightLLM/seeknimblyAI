@@ -35,7 +35,7 @@ export default function Home() {
               view === "chat" ? "bg-[var(--surface-hover)] text-[var(--text)]" : "text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]"
             }`}
           >
-            Compliance Chat
+            Chat
           </button>
           <button
             type="button"
@@ -44,7 +44,7 @@ export default function Home() {
               view === "onboarding" ? "bg-[var(--surface-hover)] text-[var(--text)]" : "text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]"
             }`}
           >
-            Onboarding
+            Checklist
           </button>
         </nav>
         <button

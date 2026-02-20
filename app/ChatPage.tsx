@@ -12,14 +12,23 @@ import {
   type ChatMessage,
   type AgentStep,
   type Chat,
+  type ChatAgentTag,
 } from "@/lib/storage";
 import { Sidebar } from "./Sidebar";
+import type { ChatAgent } from "@/lib/chatRouter";
 
 const MAX_MESSAGE_LENGTH = 8000;
 const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB (Vercel serverless limit ~4.5 MB)
 const ACCEPT_FILE_TYPES = "application/pdf,.txt,.md,.csv,image/jpeg,image/png,image/gif,image/webp";
 const JURISDICTIONS = ["NA", "CA", "US"] as const;
 type Jurisdiction = (typeof JURISDICTIONS)[number];
+
+type ApprovalPending = {
+  message: string;
+  suggestedAgent: ChatAgent;
+  reason: string;
+  fileFilenames: string[];
+};
 
 function ReasoningSteps({ steps, compact = false }: { steps: AgentStep[]; compact?: boolean }) {
   if (!steps.length) return null;
@@ -62,6 +71,7 @@ export function ChatPage() {
   const [attachedFiles, setAttachedFiles] = useState<{ file: File; id: string }[]>([]);
   const [documentText, setDocumentText] = useState("");
   const [documentExpanded, setDocumentExpanded] = useState(false);
+  const [approvalPending, setApprovalPending] = useState<ApprovalPending | null>(null);
 
   // Desktop: sidebar expanded by default. Mobile: drawer closed by default.
   useEffect(() => {
@@ -72,6 +82,7 @@ export function ChatPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const documentFileInputRef = useRef<HTMLInputElement>(null);
+  const fileIdsForApprovalRef = useRef<string[]>([]);
 
   const refreshChatList = useCallback(() => {
     setChatListState(getChatList());
@@ -105,27 +116,18 @@ export function ChatPage() {
     scrollToBottom();
   }, [messages, scrollToBottom, streamingText]);
 
-  const sendMessage = useCallback(async () => {
+  const requestRoute = useCallback(async () => {
     const text = input.trim();
-    if (!text || loading) return;
+    if (!text || loading || approvalPending) return;
     if (text.length > MAX_MESSAGE_LENGTH) {
       setError(`Message is too long. Please keep it under ${MAX_MESSAGE_LENGTH} characters.`);
       return;
     }
     setError(null);
     setUploadError(null);
-    let currentId = activeChatId;
-    const isNewChat = !currentId || messages.length === 0;
-    if (isNewChat && !currentId) {
-      currentId = createChat();
-      setActiveChatId(currentId);
-      setActiveChatIdState(currentId);
-      refreshChatList();
-    }
     setLoading(true);
-    const titleFromFirst = text.slice(0, 40).trim() || "New chat";
-    let fileIds: string[] = [];
     let fileFilenames: string[] = [];
+    let fileIds: string[] = [];
     if (attachedFiles.length > 0) {
       const formData = new FormData();
       attachedFiles.forEach(({ file }) => formData.append("files", file));
@@ -133,74 +135,117 @@ export function ChatPage() {
         const uploadRes = await fetch("/api/files", { method: "POST", body: formData });
         if (!uploadRes.ok) {
           const data = await uploadRes.json().catch(() => ({}));
-          const errMsg = data?.error ?? "File upload failed.";
-          setUploadError(errMsg);
+          setUploadError(data?.error ?? "File upload failed.");
           setLoading(false);
           return;
         }
         const data = (await uploadRes.json()) as { files: { file_id: string; filename: string }[] };
         fileIds = data.files.map((f) => f.file_id);
         fileFilenames = data.files.map((f) => f.filename);
-      } catch (e) {
+        setAttachedFiles([]);
+      } catch {
         setUploadError("File upload failed. Please try again.");
         setLoading(false);
         return;
       }
-      setAttachedFiles([]);
     }
-    const userMessage: ChatMessage = {
-      role: "user",
-      content: text,
-      ...(fileFilenames.length > 0 && { attachments: fileFilenames.map((name) => ({ name })) }),
-    };
-    const nextMessages = [...messages, userMessage];
-    setMessages(nextMessages);
-    if (isNewChat && currentId) setChat(currentId, { title: titleFromFirst, messages: nextMessages, updatedAt: Date.now() });
-    setInput("");
-    setAgentSteps([]);
-    setStreamingText("");
-
-    const FETCH_TIMEOUT_MS = 90_000;
-    const ac = new AbortController();
-    const timeoutId = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
-
+    fileIdsForApprovalRef.current = fileIds;
     try {
-      const history = nextMessages.slice(-20).slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
-      const res = await fetch("/api/hr/stream", {
+      const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          jurisdiction,
-          history,
-          ...(fileIds.length > 0 && { file_ids: fileIds, file_filenames: fileFilenames }),
-          ...(documentText.trim() && { document_text: documentText.trim().slice(0, 12000) }),
-        }),
-        signal: ac.signal,
+        body: JSON.stringify({ message: text }),
       });
-      clearTimeout(timeoutId);
-
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        const errMsg = data?.error ?? "Something went wrong. Please try again.";
-        const withError = [...nextMessages, { role: "assistant" as const, content: `[Error] ${errMsg}` }];
-        setMessages(withError);
-        if (currentId) setChat(currentId, { messages: withError, updatedAt: Date.now() });
-        setError(errMsg);
+        setError(data?.error ?? "Could not determine agent.");
         setLoading(false);
-        refreshChatList();
         return;
       }
+      const { suggestedAgent, reason } = (await res.json()) as { suggestedAgent: ChatAgent; reason: string };
+      setApprovalPending({ message: text, suggestedAgent, reason, fileFilenames });
+      setInput("");
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [input, loading, approvalPending, attachedFiles]);
 
-      const reader = res.body?.getReader();
-      if (!reader) {
-        const withError = [...nextMessages, { role: "assistant" as const, content: "[Error] No response stream." }];
-        setMessages(withError);
-        if (currentId) setChat(currentId, { messages: withError, updatedAt: Date.now() });
-        setLoading(false);
+  const confirmRoute = useCallback(
+    async (chosenAgent: ChatAgent) => {
+      const pending = approvalPending;
+      if (!pending || loading) return;
+      setApprovalPending(null);
+      setError(null);
+      setUploadError(null);
+      let currentId = activeChatId;
+      const isNewChat = !currentId || messages.length === 0;
+      if (isNewChat && !currentId) {
+        currentId = createChat();
+        setActiveChatId(currentId);
+        setActiveChatIdState(currentId);
         refreshChatList();
-        return;
       }
+      const titleFromFirst = pending.message.slice(0, 40).trim() || "New chat";
+      const userMessage: ChatMessage = {
+        role: "user",
+        content: pending.message,
+        ...(pending.fileFilenames.length > 0 && { attachments: pending.fileFilenames.map((name) => ({ name })) }),
+      };
+      const nextMessages = [...messages, userMessage];
+      setMessages(nextMessages);
+      if (isNewChat && currentId) setChat(currentId, { title: titleFromFirst, messages: nextMessages, updatedAt: Date.now() });
+      setAgentSteps([]);
+      setStreamingText("");
+      setLoading(true);
+      const history = nextMessages.slice(-20).slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
+      const FETCH_TIMEOUT_MS = 90_000;
+      const ac = new AbortController();
+      const timeoutId = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
+      const fileIds = fileIdsForApprovalRef.current;
+      const agentTag: ChatAgentTag = chosenAgent;
+      try {
+        const url = chosenAgent === "recruiting" ? "/api/agent/stream" : "/api/hr/stream";
+        const body: Record<string, unknown> =
+          chosenAgent === "recruiting"
+            ? { message: pending.message, history }
+            : {
+                message: pending.message,
+                jurisdiction,
+                history,
+                ...(chosenAgent === "onboarding" && { mode: "onboarding" }),
+                ...(chosenAgent === "compliance" && documentText.trim() && { document_text: documentText.trim().slice(0, 12000) }),
+                ...(chosenAgent === "compliance" && fileIds.length > 0 && { file_ids: fileIds, file_filenames: pending.fileFilenames }),
+              };
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: ac.signal,
+        });
+        clearTimeout(timeoutId);
+
+      if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const errMsg = data?.error ?? "Something went wrong. Please try again.";
+          const withError = [...nextMessages, { role: "assistant" as const, content: `[Error] ${errMsg}`, agent: agentTag }];
+          setMessages(withError);
+          if (currentId) setChat(currentId, { messages: withError, updatedAt: Date.now() });
+          setError(errMsg);
+          setLoading(false);
+          refreshChatList();
+          return;
+        }
+        const reader = res.body?.getReader();
+        if (!reader) {
+          const withError = [...nextMessages, { role: "assistant" as const, content: "[Error] No response stream.", agent: agentTag }];
+          setMessages(withError);
+          if (currentId) setChat(currentId, { messages: withError, updatedAt: Date.now() });
+          setLoading(false);
+          refreshChatList();
+          return;
+        }
 
       const decoder = new TextDecoder();
       let buffer = "";
@@ -227,14 +272,13 @@ export function ChatPage() {
               setStreamingText(fullText);
             } else if (ev.type === "done" && typeof ev.text === "string") {
               gotDone = true;
-              const doneText = ev.text;
-              const withAssistant = [...nextMessages, { role: "assistant" as const, content: doneText, steps: steps.length ? [...steps] : undefined }];
+              const withAssistant = [...nextMessages, { role: "assistant" as const, content: ev.text, steps: steps.length ? [...steps] : undefined, agent: agentTag }];
               setMessages(withAssistant);
               if (currentId) setChat(currentId, { messages: withAssistant, updatedAt: Date.now() });
               setAgentSteps([]);
               setStreamingText("");
             } else if (ev.type === "error" && typeof ev.error === "string") {
-              const withError = [...nextMessages, { role: "assistant" as const, content: `[Error] ${ev.error}` }];
+              const withError = [...nextMessages, { role: "assistant" as const, content: `[Error] ${ev.error}`, agent: agentTag }];
               setMessages(withError);
               if (currentId) setChat(currentId, { messages: withError, updatedAt: Date.now() });
               setError(ev.error);
@@ -246,34 +290,37 @@ export function ChatPage() {
       }
 
       if (!gotDone && fullText.trim()) {
-        const withAssistant = [...nextMessages, { role: "assistant" as const, content: fullText.trim(), steps: steps.length ? [...steps] : undefined }];
-        setMessages(withAssistant);
-        if (currentId) setChat(currentId, { messages: withAssistant, updatedAt: Date.now() });
+          const withAssistant = [...nextMessages, { role: "assistant" as const, content: fullText.trim(), steps: steps.length ? [...steps] : undefined, agent: agentTag }];
+          setMessages(withAssistant);
+          if (currentId) setChat(currentId, { messages: withAssistant, updatedAt: Date.now() });
+        }
+        refreshChatList();
+      } catch (e) {
+        clearTimeout(timeoutId);
+        const isAbort = e instanceof Error && e.name === "AbortError";
+        const errMsg = isAbort ? "Request timed out. Please try again." : "Network error. Please check your connection and try again.";
+        const withError = [...nextMessages, { role: "assistant" as const, content: `[Error] ${errMsg}`, agent: agentTag }];
+        setMessages(withError);
+        if (currentId) setChat(currentId, { messages: withError, updatedAt: Date.now() });
+        setError(errMsg);
+        refreshChatList();
+      } finally {
+        clearTimeout(timeoutId);
+        setLoading(false);
+        setAgentSteps([]);
+        setStreamingText("");
       }
-      refreshChatList();
-    } catch (e) {
-      clearTimeout(timeoutId);
-      const isAbort = e instanceof Error && e.name === "AbortError";
-      const errMsg = isAbort
-        ? "Request timed out. Please try again."
-        : "Network error. Please check your connection and try again.";
-      const withError = [...nextMessages, { role: "assistant" as const, content: `[Error] ${errMsg}` }];
-      setMessages(withError);
-      if (currentId) setChat(currentId, { messages: withError, updatedAt: Date.now() });
-      setError(errMsg);
-      refreshChatList();
-    } finally {
-      clearTimeout(timeoutId);
-      setLoading(false);
-      setAgentSteps([]);
-      setStreamingText("");
-    }
-  }, [input, loading, jurisdiction, messages, activeChatId, attachedFiles, documentText, refreshChatList]);
+    },
+    [approvalPending, loading, activeChatId, messages, jurisdiction, documentText, refreshChatList]
+  );
+
+  const cancelApproval = useCallback(() => setApprovalPending(null), []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      sendMessage();
+      if (approvalPending) return;
+      requestRoute();
     }
   };
 
@@ -286,6 +333,7 @@ export function ChatPage() {
     setInput("");
     setAgentSteps([]);
     setStreamingText("");
+    setApprovalPending(null);
     refreshChatList();
   };
 
@@ -388,7 +436,7 @@ export function ChatPage() {
             {messages.length === 0 && !loading && (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <p className="text-[var(--text-secondary)] text-[15px] leading-relaxed max-w-sm">
-                  Ask a question about HR compliance in North America. Your conversation is saved in this browser.
+                  Ask anything — recruiting, compliance, or onboarding. We’ll suggest the right agent; you approve before we answer.
                 </p>
                 <p className="mt-2 text-[var(--text-tertiary)] text-[13px]">
                   Jurisdiction: {jurisdiction}
@@ -415,6 +463,9 @@ export function ChatPage() {
                           : "bg-[var(--assistant-bubble)] border border-[var(--border)]"
                     }`}
                   >
+                    {msg.role === "assistant" && msg.agent && (
+                      <p className="text-[11px] uppercase tracking-wider text-[var(--text-tertiary)] mb-1.5">{msg.agent} agent</p>
+                    )}
                     {msg.role === "user" && msg.attachments && msg.attachments.length > 0 && (
                       <p className="text-[12px] opacity-90 mb-2">
                         Attached: {msg.attachments.map((a) => a.name).join(", ")}
@@ -463,6 +514,36 @@ export function ChatPage() {
 
         <footer className="sticky bottom-0 border-t border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl supports-[backdrop-filter]:bg-[var(--bg)]/70">
           <div className="max-w-3xl mx-auto px-5 py-4">
+            {approvalPending ? (
+              <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4 mb-4">
+                <p className="text-[13px] text-[var(--text-secondary)] mb-1">Route to agent</p>
+                <p className="text-[15px] text-[var(--text)] mb-2 line-clamp-2">&quot;{approvalPending.message}&quot;</p>
+                <p className="text-[12px] text-[var(--text-tertiary)] mb-3">{approvalPending.reason}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[12px] text-[var(--text-secondary)] mr-1">Suggested: <strong className="capitalize text-[var(--text)]">{approvalPending.suggestedAgent}</strong></span>
+                  <button
+                    type="button"
+                    onClick={() => confirmRoute(approvalPending.suggestedAgent)}
+                    className="h-8 px-3 rounded-lg bg-[var(--accent)] text-white text-[13px] font-medium hover:bg-[var(--accent-hover)]"
+                  >
+                    Approve
+                  </button>
+                  {(["recruiting", "compliance", "onboarding"] as const).map((agent) => (
+                    <button
+                      key={agent}
+                      type="button"
+                      onClick={() => confirmRoute(agent)}
+                      className={`h-8 px-3 rounded-lg text-[13px] font-medium capitalize ${agent === approvalPending.suggestedAgent ? "bg-[var(--surface-hover)] text-[var(--text)]" : "border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"}`}
+                    >
+                      {agent}
+                    </button>
+                  ))}
+                  <button type="button" onClick={cancelApproval} className="h-8 px-3 rounded-lg text-[13px] text-[var(--text-tertiary)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <input
               ref={fileInputRef}
               type="file"
@@ -557,16 +638,16 @@ export function ChatPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask about HR compliance…"
+                placeholder="Ask Recruiting, Compliance, or Onboarding…"
                 rows={2}
                 maxLength={MAX_MESSAGE_LENGTH + 100}
                 className="flex-1 min-h-[44px] max-h-[120px] resize-none rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[15px] text-[var(--text)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-shadow disabled:opacity-60"
-                disabled={loading}
+                disabled={loading || !!approvalPending}
               />
               <button
                 type="button"
-                onClick={sendMessage}
-                disabled={loading || !input.trim() || input.length > MAX_MESSAGE_LENGTH}
+                onClick={requestRoute}
+                disabled={loading || !!approvalPending || !input.trim() || input.length > MAX_MESSAGE_LENGTH}
                 className="shrink-0 h-11 px-5 rounded-[var(--radius-lg)] bg-[var(--accent)] text-white text-[15px] font-medium hover:bg-[var(--accent-hover)] active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2 focus:ring-offset-[var(--bg)]"
               >
                 Send

@@ -12,6 +12,8 @@ export type AgentStep = {
   status: "active" | "done";
 };
 
+export type ChatAgentTag = "recruiting" | "compliance" | "onboarding";
+
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -19,6 +21,8 @@ export type ChatMessage = {
   steps?: AgentStep[];
   /** For user messages: display names of attached files (file_id not persisted long-term) */
   attachments?: { name: string; fileId?: string }[];
+  /** Which agent answered (unified chat) */
+  agent?: ChatAgentTag;
 };
 
 export type Chat = {
@@ -48,6 +52,8 @@ function parseChatMessage(m: unknown): ChatMessage | null {
   if (steps !== undefined && (!Array.isArray(steps) || steps.some((s) => typeof s?.id !== "string" || typeof s?.label !== "string"))) return null;
   const attachments = (m as ChatMessage).attachments;
   if (attachments !== undefined && (!Array.isArray(attachments) || attachments.some((a) => typeof a?.name !== "string"))) return null;
+  const agent = (m as ChatMessage).agent;
+  if (agent !== undefined && !["recruiting", "compliance", "onboarding"].includes(agent)) return null;
   return m as ChatMessage;
 }
 

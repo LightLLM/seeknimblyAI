@@ -43,7 +43,7 @@ HR compliance chat MVP: chat with an assistant for North America (NA/CA/US) usin
    npm run dev
    ```
 
-4. Open [http://localhost:3000](http://localhost:3000). **Sign in** with the email and password set in `AUTH_EMAIL` and `AUTH_PASSWORD`. Then use the jurisdiction dropdown (NA/CA/US), type a question, and send. Replies stream in with optional “Compliance reasoning” steps. Chat is persisted in `localStorage`; use **New chat** to clear. Use **Sign out** in the header to log out.
+4. Open [http://localhost:3000](http://localhost:3000). **Sign in** with the email and password set in `AUTH_EMAIL` and `AUTH_PASSWORD`. Use **Chat** for the unified assistant: type a question → we suggest an agent (Recruiting, Compliance, or Onboarding) → you **approve** or choose another → the chosen agent answers. Use **Checklist** for the new-hire onboarding checklist. Chat is persisted in `localStorage`; use **New chat** to clear. **Sign out** is in the header.
 
 ## Deploy on Vercel
 
@@ -52,18 +52,27 @@ HR compliance chat MVP: chat with an assistant for North America (NA/CA/US) usin
 2. **Streaming**: The chat stream route uses `maxDuration = 60` (also set in `vercel.json`). If the stream returns no text (e.g. on Vercel), the route automatically retries with a non-streaming request and sends that response. If chat still shows “no response”, check **Vercel → Project → Settings → Environment Variables** for `OPENAI_API_KEY` and `OPENAI_MODEL` (e.g. `gpt-4o`) for Production, then redeploy. In **Deployments → Logs**, look for `[api/hr/stream]` to see whether the fallback ran or failed.
 3. **File upload**: Request body is limited to ~4.5 MB on Vercel. The app limits uploads to **4 MB** per request. Keep files under 4 MB or upload one at a time.
 
+## Unified chat (Recruiting, Compliance, Onboarding)
+
+One chat interface with three agents. Flow:
+
+1. You type a message and send.
+2. **POST `/api/chat`** is called with `{ "message": "..." }` and returns `{ "suggestedAgent": "recruiting" | "compliance" | "onboarding", "reason": "..." }` (keyword-based routing).
+3. You see an **approval card**: suggested agent and reason. You click **Approve** to use that agent, or **Recruiting** / **Compliance** / **Onboarding** to override. **Cancel** clears the pending message.
+4. Once approved, the app calls the right stream: **Recruiting** → **POST `/api/agent/stream`**; **Compliance** or **Onboarding** → **POST `/api/hr/stream`** (with `mode: "onboarding"` for Onboarding). Response streams back; each reply is tagged with which agent answered.
+
 ## Chat API
 
-- **UI** uses **POST `/api/hr/stream`**: streaming NDJSON (text deltas, steps, then a final `done` or `error`). Requests time out after 90 seconds.
-- **POST `/api/hr`**: non-streaming JSON response `{ "text": "..." }`, useful for scripts and curl.
-- Optional body field **`document_text`** (string, max 12000 chars): when set, the backend may route to the compliance or policy-doc agent and return structured findings (Finding, Issues, Required Actions, Evidence, Risk Rating, Disclaimer).
-- Optional body field **`mode`**: `"onboarding"` — uses the new-hire onboarding assistant (first-day steps, forms, who to contact, benefits). No document or agent routing.
+- **POST `/api/chat`**: body `{ "message": "..." }` → `{ "suggestedAgent": "recruiting" | "compliance" | "onboarding", "reason": "..." }`. Used by the UI before sending to an agent.
+- **POST `/api/hr/stream`**: streaming NDJSON (steps, text deltas, `done` or `error`). Used for Compliance (default) and Onboarding (`mode: "onboarding"`). Optional `document_text`, `file_ids`, `file_filenames` for compliance.
+- **POST `/api/agent/stream`**: streaming NDJSON for the Recruiting agent (tools, steps, text, `done`).
+- **POST `/api/hr`**: non-streaming JSON `{ "text": "..." }` for scripts.
 
-## New hire onboarding
+## Checklist (onboarding)
 
-1. After signing in, click **Onboarding** in the top nav (next to Compliance Chat).
-2. Use the **checklist** to track typical new-hire tasks (forms, handbook, equipment, manager intro, training, benefits, HR/IT contacts). Progress is saved in the browser; use **Reset** to clear.
-3. Use **Ask about onboarding** to ask the assistant first-day questions, who to contact for IT or benefits, or general NA/CA/US onboarding guidance. Pick jurisdiction (NA / Canada / US) for relevant answers.
+1. After signing in, click **Checklist** in the top nav (next to Chat).
+2. Use the **checklist** to track new-hire tasks (forms, handbook, equipment, manager intro, training, benefits, HR/IT contacts). Progress is saved in the browser; **Reset** clears it.
+3. The “Ask about onboarding” panel on that page uses the same Onboarding agent (POST `/api/hr/stream` with `mode: "onboarding"`).
 
 ## How to use Compliance Check
 
