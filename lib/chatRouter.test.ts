@@ -48,11 +48,22 @@ describe("chatRouter", () => {
     });
 
     it("returns valid RouteSuggestion shape (suggestedAgent + reason)", () => {
-      const agents: ChatAgent[] = ["recruiting", "compliance", "onboarding"];
+      const agents: ChatAgent[] = ["recruiting", "compliance", "onboarding", "learning_development"];
       const r = suggestChatAgent("hire engineers");
       expect(agents).toContain(r.suggestedAgent);
       expect(typeof r.reason).toBe("string");
       expect(r.reason.length).toBeGreaterThan(0);
+    });
+
+    it("suggests learning_development for training and career development message", () => {
+      const r = suggestChatAgent("What training do you recommend for leadership development?");
+      expect(r.suggestedAgent).toBe("learning_development");
+      expect(r.reason).toContain("learning");
+    });
+
+    it("suggests learning_development for skills and certification phrases", () => {
+      expect(suggestChatAgent("I want to upskill and get a certification")).toMatchObject({ suggestedAgent: "learning_development" });
+      expect(suggestChatAgent("career development and mentoring")).toMatchObject({ suggestedAgent: "learning_development" });
     });
   });
 });

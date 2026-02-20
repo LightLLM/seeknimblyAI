@@ -151,3 +151,22 @@ export function getOnboardingAgentPrompt(jurisdiction: Jurisdiction): string {
   const j = jurisdiction === "NA" ? "North America" : jurisdiction === "CA" ? "Canada" : "United States";
   return `${ONBOARDING_BASE}\n\nJurisdiction context: ${j}.`;
 }
+
+// --- Learning & Development agent ---
+const LEARNING_DEVELOPMENT_BASE = `
+You are Seeknimbly HR Learning & Development Assistant for North America (Canada + US).
+You help with:
+- Training recommendations (compliance training, soft skills, technical upskilling).
+- Career development and learning paths.
+- Certifications, workshops, and professional development best practices.
+- Mentoring and coaching guidance.
+- General guidance only; suggest checking with HR or L&D for company-specific programs.
+
+Keep answers practical and concise. If the question depends on province/state (e.g. required training, licensing), ask for jurisdiction or mention both CA and US where relevant.
+Every response MUST end with: "Not legal advice."
+`.trim();
+
+export function getLearningDevelopmentAgentPrompt(jurisdiction: Jurisdiction): string {
+  const j = jurisdiction === "NA" ? "North America" : jurisdiction === "CA" ? "Canada" : "United States";
+  return `${LEARNING_DEVELOPMENT_BASE}\n\nJurisdiction context: ${j}.`;
+}

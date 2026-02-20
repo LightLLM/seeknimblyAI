@@ -7,6 +7,7 @@ import {
   getPolicyDocAgentPrompt,
   getRiskControlsAgentPrompt,
   getOnboardingAgentPrompt,
+  getLearningDevelopmentAgentPrompt,
   COMPLIANCE_CHECK_QUESTION_INSTRUCTION,
   type Jurisdiction,
 } from "@/lib/prompts";
@@ -32,7 +33,7 @@ const BODY_SCHEMA = z.object({
   file_ids: z.array(z.string()).max(10).optional(),
   file_filenames: z.array(z.string()).max(10).optional(),
   document_text: z.string().max(12000).optional(),
-  mode: z.enum(["default", "onboarding"]).optional(),
+  mode: z.enum(["default", "onboarding", "learning_development"]).optional(),
 });
 
 type Body = z.infer<typeof BODY_SCHEMA>;
@@ -93,6 +94,7 @@ export async function POST(req: NextRequest) {
   const docSummary = (body.document_text ?? "").trim().slice(0, 8000);
   const hasDocument = docSummary.length > 0;
   const isOnboarding = body.mode === "onboarding";
+  const isLearningDevelopment = body.mode === "learning_development";
   const startTime = Date.now();
 
   const encoder = new TextEncoder();
@@ -100,7 +102,7 @@ export async function POST(req: NextRequest) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      controller.enqueue(encoder.encode(streamLine({ type: "step", id: "router", label: isOnboarding ? "Onboarding…" : "Connecting…", status: "active" })));
+      controller.enqueue(encoder.encode(streamLine({ type: "step", id: "router", label: isOnboarding ? "Onboarding…" : isLearningDevelopment ? "Learning & Development…" : "Connecting…", status: "active" })));
       let sentFinal = false;
       const sendDone = (text: string) => {
         if (sentFinal) return;
@@ -126,6 +128,9 @@ export async function POST(req: NextRequest) {
         if (isOnboarding) {
           systemPrompt = getOnboardingAgentPrompt(jurisdiction);
           console.info("[api/hr/stream]", { mode: "onboarding", duration_ms: Date.now() - startTime });
+        } else if (isLearningDevelopment) {
+          systemPrompt = getLearningDevelopmentAgentPrompt(jurisdiction);
+          console.info("[api/hr/stream]", { mode: "learning_development", duration_ms: Date.now() - startTime });
         } else {
           const routerResult = await chooseAgent({
             message: body.message,

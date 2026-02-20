@@ -52,14 +52,14 @@ HR compliance chat MVP: chat with an assistant for North America (NA/CA/US) usin
 2. **Streaming**: The chat stream route uses `maxDuration = 60` (also set in `vercel.json`). If the stream returns no text (e.g. on Vercel), the route automatically retries with a non-streaming request and sends that response. If chat still shows “no response”, check **Vercel → Project → Settings → Environment Variables** for `OPENAI_API_KEY` and `OPENAI_MODEL` (e.g. `gpt-4o`) for Production, then redeploy. In **Deployments → Logs**, look for `[api/hr/stream]` to see whether the fallback ran or failed.
 3. **File upload**: Request body is limited to ~4.5 MB on Vercel. The app limits uploads to **4 MB** per request. Keep files under 4 MB or upload one at a time.
 
-## Unified chat (Recruiting, Compliance, Onboarding)
+## Unified chat (Recruiting, Compliance, Onboarding, Learning & Development)
 
-One chat interface with three agents. Flow:
+One chat interface with four agents. Flow:
 
 1. You type a message and send.
-2. **POST `/api/chat`** is called with `{ "message": "..." }` and returns `{ "suggestedAgent": "recruiting" | "compliance" | "onboarding", "reason": "..." }` (keyword-based routing).
-3. You see an **approval card**: suggested agent and reason. You click **Approve** to use that agent, or **Recruiting** / **Compliance** / **Onboarding** to override. **Cancel** clears the pending message.
-4. Once approved, the app calls the right stream: **Recruiting** → **POST `/api/agent/stream`**; **Compliance** or **Onboarding** → **POST `/api/hr/stream`** (with `mode: "onboarding"` for Onboarding). Response streams back; each reply is tagged with which agent answered.
+2. **POST `/api/chat`** is called with `{ "message": "..." }` and returns `{ "suggestedAgent": "recruiting" | "compliance" | "onboarding" | "learning_development", "reason": "..." }` (keyword-based routing).
+3. You see an **approval card**: suggested agent and reason. You click **Approve** to use that agent, or **Recruiting** / **Compliance** / **Onboarding** / **Learning & Development** to override. **Cancel** clears the pending message.
+4. Once approved, the app calls the right stream: **Recruiting** → **POST `/api/agent/stream`**; **Compliance**, **Onboarding**, or **Learning & Development** → **POST `/api/hr/stream`** (with `mode: "onboarding"` or `mode: "learning_development"`). Response streams back; each reply is tagged with which agent answered.
 
 ## Chat API
 

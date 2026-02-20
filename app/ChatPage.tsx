@@ -215,6 +215,7 @@ export function ChatPage() {
                 jurisdiction,
                 history,
                 ...(chosenAgent === "onboarding" && { mode: "onboarding" }),
+                ...(chosenAgent === "learning_development" && { mode: "learning_development" }),
                 ...(chosenAgent === "compliance" && documentText.trim() && { document_text: documentText.trim().slice(0, 12000) }),
                 ...(chosenAgent === "compliance" && fileIds.length > 0 && { file_ids: fileIds, file_filenames: pending.fileFilenames }),
               };
@@ -436,7 +437,7 @@ export function ChatPage() {
             {messages.length === 0 && !loading && (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <p className="text-[var(--text-secondary)] text-[15px] leading-relaxed max-w-sm">
-                  Ask anything — recruiting, compliance, or onboarding. We’ll suggest the right agent; you approve before we answer.
+                  Ask anything — recruiting, compliance, onboarding, or learning & development. We’ll suggest the right agent; you approve before we answer.
                 </p>
                 <p className="mt-2 text-[var(--text-tertiary)] text-[13px]">
                   Jurisdiction: {jurisdiction}
@@ -464,7 +465,7 @@ export function ChatPage() {
                     }`}
                   >
                     {msg.role === "assistant" && msg.agent && (
-                      <p className="text-[11px] uppercase tracking-wider text-[var(--text-tertiary)] mb-1.5">{msg.agent} agent</p>
+                      <p className="text-[11px] uppercase tracking-wider text-[var(--text-tertiary)] mb-1.5">{msg.agent === "learning_development" ? "Learning & Development" : msg.agent} agent</p>
                     )}
                     {msg.role === "user" && msg.attachments && msg.attachments.length > 0 && (
                       <p className="text-[12px] opacity-90 mb-2">
@@ -520,7 +521,7 @@ export function ChatPage() {
                 <p className="text-[15px] text-[var(--text)] mb-2 line-clamp-2">&quot;{approvalPending.message}&quot;</p>
                 <p className="text-[12px] text-[var(--text-tertiary)] mb-3">{approvalPending.reason}</p>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[12px] text-[var(--text-secondary)] mr-1">Suggested: <strong className="capitalize text-[var(--text)]">{approvalPending.suggestedAgent}</strong></span>
+                  <span className="text-[12px] text-[var(--text-secondary)] mr-1">Suggested: <strong className="text-[var(--text)]">{approvalPending.suggestedAgent === "learning_development" ? "Learning & Development" : approvalPending.suggestedAgent.charAt(0).toUpperCase() + approvalPending.suggestedAgent.slice(1)}</strong></span>
                   <button
                     type="button"
                     onClick={() => confirmRoute(approvalPending.suggestedAgent)}
@@ -528,14 +529,14 @@ export function ChatPage() {
                   >
                     Approve
                   </button>
-                  {(["recruiting", "compliance", "onboarding"] as const).map((agent) => (
+                  {(["recruiting", "compliance", "onboarding", "learning_development"] as const).map((agent) => (
                     <button
                       key={agent}
                       type="button"
                       onClick={() => confirmRoute(agent)}
-                      className={`h-8 px-3 rounded-lg text-[13px] font-medium capitalize ${agent === approvalPending.suggestedAgent ? "bg-[var(--surface-hover)] text-[var(--text)]" : "border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"}`}
+                      className={`h-8 px-3 rounded-lg text-[13px] font-medium ${agent === approvalPending.suggestedAgent ? "bg-[var(--surface-hover)] text-[var(--text)]" : "border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"}`}
                     >
-                      {agent}
+                      {agent === "learning_development" ? "Learning & Development" : agent.charAt(0).toUpperCase() + agent.slice(1)}
                     </button>
                   ))}
                   <button type="button" onClick={cancelApproval} className="h-8 px-3 rounded-lg text-[13px] text-[var(--text-tertiary)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]">
@@ -638,7 +639,7 @@ export function ChatPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask Recruiting, Compliance, or Onboarding…"
+                placeholder="Ask Recruiting, Compliance, Onboarding, or Learning & Development…"
                 rows={2}
                 maxLength={MAX_MESSAGE_LENGTH + 100}
                 className="flex-1 min-h-[44px] max-h-[120px] resize-none rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[15px] text-[var(--text)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-shadow disabled:opacity-60"

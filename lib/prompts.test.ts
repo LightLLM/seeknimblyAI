@@ -5,6 +5,7 @@ import {
   getPolicyDocAgentPrompt,
   getRiskControlsAgentPrompt,
   getOnboardingAgentPrompt,
+  getLearningDevelopmentAgentPrompt,
   COMPLIANCE_CHECK_QUESTION_INSTRUCTION,
 } from "@/lib/prompts";
 
@@ -106,6 +107,19 @@ describe("prompts", () => {
     it("includes jurisdiction context for CA", () => {
       const p = getOnboardingAgentPrompt("CA");
       expect(p).toContain("Canada");
+    });
+  });
+
+  describe("getLearningDevelopmentAgentPrompt", () => {
+    it("includes learning, training, career development and Not legal advice", () => {
+      const p = getLearningDevelopmentAgentPrompt("NA");
+      expect(p).toContain("Learning");
+      expect(p).toContain("Training");
+      expect(p).toContain("Not legal advice.");
+    });
+    it("includes jurisdiction context for US", () => {
+      const p = getLearningDevelopmentAgentPrompt("US");
+      expect(p).toContain("United States");
     });
   });
 });
