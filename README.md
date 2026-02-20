@@ -61,9 +61,18 @@ One chat interface with four agents. Flow:
 3. You see an **approval card**: suggested agent and reason. You click **Approve** to use that agent, or **Recruiting** / **Compliance** / **Onboarding** / **Learning & Development** to override. **Cancel** clears the pending message.
 4. Once approved, the app calls the right stream: **Recruiting** → **POST `/api/agent/stream`**; **Compliance**, **Onboarding**, or **Learning & Development** → **POST `/api/hr/stream`** (with `mode: "onboarding"` or `mode: "learning_development"`). Response streams back; each reply is tagged with which agent answered.
 
+**Sample prompts to try (also shown in the Chat empty state):**
+
+| Agent | Sample prompt |
+|-------|----------------|
+| **Recruiting** | Find me 5 backend engineers in Toronto with 3+ years experience. |
+| **Compliance** | What are the overtime rules in Ontario? |
+| **Onboarding** | What should I do on my first day? Who do I contact for IT access? |
+| **Learning & Development** | What training do you recommend for leadership development? |
+
 ## Chat API
 
-- **POST `/api/chat`**: body `{ "message": "..." }` → `{ "suggestedAgent": "recruiting" | "compliance" | "onboarding", "reason": "..." }`. Used by the UI before sending to an agent.
+- **POST `/api/chat`**: body `{ "message": "..." }` → `{ "suggestedAgent": "recruiting" | "compliance" | "onboarding" | "learning_development", "reason": "..." }`. Used by the UI before sending to an agent.
 - **POST `/api/hr/stream`**: streaming NDJSON (steps, text deltas, `done` or `error`). Used for Compliance (default) and Onboarding (`mode: "onboarding"`). Optional `document_text`, `file_ids`, `file_filenames` for compliance.
 - **POST `/api/agent/stream`**: streaming NDJSON for the Recruiting agent (tools, steps, text, `done`).
 - **POST `/api/hr`**: non-streaming JSON `{ "text": "..." }` for scripts.

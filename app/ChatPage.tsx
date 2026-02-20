@@ -442,6 +442,27 @@ export function ChatPage() {
                 <p className="mt-2 text-[var(--text-tertiary)] text-[13px]">
                   Jurisdiction: {jurisdiction}
                 </p>
+                <p className="mt-6 text-[12px] font-medium uppercase tracking-wider text-[var(--text-tertiary)] mb-3">
+                  Try these prompts
+                </p>
+                <div className="flex flex-wrap justify-center gap-3 max-w-2xl">
+                  {[
+                    { label: "Recruiting", prompt: "Find me 5 backend engineers in Toronto with 3+ years experience." },
+                    { label: "Compliance", prompt: "What are the overtime rules in Ontario?" },
+                    { label: "Onboarding", prompt: "What should I do on my first day? Who do I contact for IT access?" },
+                    { label: "Learning & Development", prompt: "What training do you recommend for leadership development?" },
+                  ].map(({ label, prompt }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setInput(prompt)}
+                      className="px-4 py-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[13px] text-left hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] transition-colors w-full sm:w-[280px]"
+                    >
+                      <span className="font-semibold text-[var(--accent)]">{label}</span>
+                      <p className="mt-1 text-[var(--text-secondary)] leading-snug">{prompt}</p>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             <ul className="space-y-5">
