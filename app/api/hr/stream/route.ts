@@ -6,6 +6,7 @@ import {
   getComplianceAgentPrompt,
   getPolicyDocAgentPrompt,
   getRiskControlsAgentPrompt,
+  getOnboardingAgentPrompt,
   COMPLIANCE_CHECK_QUESTION_INSTRUCTION,
   type Jurisdiction,
 } from "@/lib/prompts";
@@ -31,6 +32,7 @@ const BODY_SCHEMA = z.object({
   file_ids: z.array(z.string()).max(10).optional(),
   file_filenames: z.array(z.string()).max(10).optional(),
   document_text: z.string().max(12000).optional(),
+  mode: z.enum(["default", "onboarding"]).optional(),
 });
 
 type Body = z.infer<typeof BODY_SCHEMA>;
@@ -90,6 +92,7 @@ export async function POST(req: NextRequest) {
 
   const docSummary = (body.document_text ?? "").trim().slice(0, 8000);
   const hasDocument = docSummary.length > 0;
+  const isOnboarding = body.mode === "onboarding";
   const startTime = Date.now();
 
   const encoder = new TextEncoder();
@@ -97,7 +100,7 @@ export async function POST(req: NextRequest) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      controller.enqueue(encoder.encode(streamLine({ type: "step", id: "router", label: "Connecting…", status: "active" })));
+      controller.enqueue(encoder.encode(streamLine({ type: "step", id: "router", label: isOnboarding ? "Onboarding…" : "Connecting…", status: "active" })));
       let sentFinal = false;
       const sendDone = (text: string) => {
         if (sentFinal) return;
@@ -116,31 +119,38 @@ export async function POST(req: NextRequest) {
         controller.enqueue(encoder.encode(streamLine({ type: "error", error })));
       };
       try {
-        const routerResult = await chooseAgent({
-          message: body.message,
-          history: body.history ?? [],
-          hasDocument,
-        });
-        const agent: AgentId = routerResult.agent;
         const jurisdiction = body.jurisdiction as Jurisdiction;
         let systemPrompt: string;
-        switch (agent) {
-          case "compliance_agent":
-            systemPrompt = getComplianceAgentPrompt(jurisdiction);
-            if (hasDocument && (body.history?.length ?? 0) === 0) {
-              systemPrompt += "\n\n" + COMPLIANCE_CHECK_QUESTION_INSTRUCTION;
-            }
-            break;
-          case "policy_doc_agent":
-            systemPrompt = getPolicyDocAgentPrompt(jurisdiction);
-            break;
-          case "risk_controls_agent":
-            systemPrompt = getRiskControlsAgentPrompt(jurisdiction);
-            break;
-          default:
-            systemPrompt = getSystemPrompt(jurisdiction);
+        let agent: AgentId = "general_hr_assistant";
+
+        if (isOnboarding) {
+          systemPrompt = getOnboardingAgentPrompt(jurisdiction);
+          console.info("[api/hr/stream]", { mode: "onboarding", duration_ms: Date.now() - startTime });
+        } else {
+          const routerResult = await chooseAgent({
+            message: body.message,
+            history: body.history ?? [],
+            hasDocument,
+          });
+          agent = routerResult.agent;
+          switch (agent) {
+            case "compliance_agent":
+              systemPrompt = getComplianceAgentPrompt(jurisdiction);
+              if (hasDocument && (body.history?.length ?? 0) === 0) {
+                systemPrompt += "\n\n" + COMPLIANCE_CHECK_QUESTION_INSTRUCTION;
+              }
+              break;
+            case "policy_doc_agent":
+              systemPrompt = getPolicyDocAgentPrompt(jurisdiction);
+              break;
+            case "risk_controls_agent":
+              systemPrompt = getRiskControlsAgentPrompt(jurisdiction);
+              break;
+            default:
+              systemPrompt = getSystemPrompt(jurisdiction);
+          }
+          console.info("[api/hr/stream]", { chosen_agent: agent, has_document: hasDocument, duration_ms: Date.now() - startTime });
         }
-        console.info("[api/hr/stream]", { chosen_agent: agent, has_document: hasDocument, duration_ms: Date.now() - startTime });
 
         const userMessage = body.message;
         const fileIds = body.file_ids ?? [];

@@ -57,6 +57,13 @@ HR compliance chat MVP: chat with an assistant for North America (NA/CA/US) usin
 - **UI** uses **POST `/api/hr/stream`**: streaming NDJSON (text deltas, steps, then a final `done` or `error`). Requests time out after 90 seconds.
 - **POST `/api/hr`**: non-streaming JSON response `{ "text": "..." }`, useful for scripts and curl.
 - Optional body field **`document_text`** (string, max 12000 chars): when set, the backend may route to the compliance or policy-doc agent and return structured findings (Finding, Issues, Required Actions, Evidence, Risk Rating, Disclaimer).
+- Optional body field **`mode`**: `"onboarding"` — uses the new-hire onboarding assistant (first-day steps, forms, who to contact, benefits). No document or agent routing.
+
+## New hire onboarding
+
+1. After signing in, click **Onboarding** in the top nav (next to Compliance Chat).
+2. Use the **checklist** to track typical new-hire tasks (forms, handbook, equipment, manager intro, training, benefits, HR/IT contacts). Progress is saved in the browser; use **Reset** to clear.
+3. Use **Ask about onboarding** to ask the assistant first-day questions, who to contact for IT or benefits, or general NA/CA/US onboarding guidance. Pick jurisdiction (NA / Canada / US) for relevant answers.
 
 ## How to use Compliance Check
 

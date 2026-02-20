@@ -4,6 +4,7 @@ import {
   getComplianceAgentPrompt,
   getPolicyDocAgentPrompt,
   getRiskControlsAgentPrompt,
+  getOnboardingAgentPrompt,
   COMPLIANCE_CHECK_QUESTION_INSTRUCTION,
 } from "@/lib/prompts";
 
@@ -93,6 +94,18 @@ describe("prompts", () => {
       expect(COMPLIANCE_CHECK_QUESTION_INSTRUCTION).toContain("SOC2");
       expect(COMPLIANCE_CHECK_QUESTION_INSTRUCTION).toContain("ISO 9001");
       expect(COMPLIANCE_CHECK_QUESTION_INSTRUCTION).toContain("compliance");
+    });
+  });
+
+  describe("getOnboardingAgentPrompt", () => {
+    it("includes onboarding and first-day guidance and Not legal advice", () => {
+      const p = getOnboardingAgentPrompt("NA");
+      expect(p).toContain("Onboarding");
+      expect(p).toContain("Not legal advice.");
+    });
+    it("includes jurisdiction context for CA", () => {
+      const p = getOnboardingAgentPrompt("CA");
+      expect(p).toContain("Canada");
     });
   });
 });

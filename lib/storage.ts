@@ -220,3 +220,74 @@ export function clearStoredTranscript(): void {
   const activeId = getActiveChatId();
   if (activeId) setChat(activeId, { messages: [], updatedAt: Date.now() });
 }
+
+// --- New hire onboarding checklist (localStorage) ---
+const ONBOARDING_STORAGE_KEY = "seeknimbly_onboarding_checklist";
+
+export type OnboardingItem = {
+  id: string;
+  label: string;
+  done: boolean;
+  order: number;
+};
+
+const DEFAULT_ONBOARDING_ITEMS: OnboardingItem[] = [
+  { id: "forms", label: "Complete employment forms (I-9 / tax, direct deposit)", done: false, order: 1 },
+  { id: "handbook", label: "Review employee handbook and policies", done: false, order: 2 },
+  { id: "equipment", label: "Set up equipment and accounts (laptop, email, access)", done: false, order: 3 },
+  { id: "manager", label: "Meet with manager and team introductions", done: false, order: 4 },
+  { id: "training", label: "Complete required training (safety, compliance, systems)", done: false, order: 5 },
+  { id: "benefits", label: "Enroll in benefits (if applicable)", done: false, order: 6 },
+  { id: "hr-contact", label: "Save HR and IT contact info", done: false, order: 7 },
+];
+
+function loadOnboardingRaw(): OnboardingItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(ONBOARDING_STORAGE_KEY);
+    if (!raw) return DEFAULT_ONBOARDING_ITEMS.map((i) => ({ ...i }));
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return DEFAULT_ONBOARDING_ITEMS.map((i) => ({ ...i }));
+    const byId = new Map(DEFAULT_ONBOARDING_ITEMS.map((i) => [i.id, { ...i }]));
+    for (const item of parsed) {
+      if (item && typeof item === "object" && typeof (item as OnboardingItem).id === "string") {
+        const existing = byId.get((item as OnboardingItem).id) ?? { id: (item as OnboardingItem).id, label: (item as OnboardingItem).label || "", done: false, order: (item as OnboardingItem).order ?? 99 };
+        byId.set((item as OnboardingItem).id, { ...existing, done: Boolean((item as OnboardingItem).done) });
+      }
+    }
+    return Array.from(byId.values()).sort((a, b) => a.order - b.order);
+  } catch {
+    return DEFAULT_ONBOARDING_ITEMS.map((i) => ({ ...i }));
+  }
+}
+
+function saveOnboardingRaw(items: OnboardingItem[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(items));
+  } catch {
+    // ignore
+  }
+}
+
+export function getOnboardingChecklist(): OnboardingItem[] {
+  return loadOnboardingRaw();
+}
+
+export function setOnboardingItemDone(id: string, done: boolean): void {
+  const items = loadOnboardingRaw();
+  const idx = items.findIndex((i) => i.id === id);
+  if (idx >= 0) {
+    items[idx] = { ...items[idx], done };
+    saveOnboardingRaw(items);
+  }
+}
+
+export function resetOnboardingChecklist(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(ONBOARDING_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
