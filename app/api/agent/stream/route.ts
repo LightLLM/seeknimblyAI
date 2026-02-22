@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getOpenAIApiKey, getOpenAIModel } from "@/lib/openai";
 import { check, record, rateLimitKey } from "@/lib/rateLimit";
 import { getAgentSystemPrompt, type AgentParams } from "@/lib/agent-prompts";
-import { AGENT_TOOLS, executeTool } from "@/lib/agent-tools";
+import { AGENT_TOOLS, executeTool, toolRequiresApproval } from "@/lib/agent-tools";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -40,11 +40,14 @@ function getClientIp(req: NextRequest): string {
   return "unknown";
 }
 
+type PendingCall = { id: string; name: string; args: Record<string, unknown> };
+
 type StreamEvent =
   | { type: "step"; id: string; label: string; status: "active" | "done" }
   | { type: "text"; delta: string }
   | { type: "done"; text: string }
-  | { type: "error"; error: string };
+  | { type: "error"; error: string }
+  | { type: "pending_tool_calls"; calls: PendingCall[]; continuation: string };
 
 function streamLine(ev: StreamEvent): string {
   return JSON.stringify(ev) + "\n";
@@ -134,7 +137,25 @@ export async function POST(req: NextRequest) {
 
           if (msg.tool_calls && msg.tool_calls.length > 0) {
             messages.push({ role: "assistant", content: msg.content ?? null, tool_calls: msg.tool_calls });
+            const approvalCalls: PendingCall[] = [];
+            const autoCalls: typeof msg.tool_calls = [];
             for (const tc of msg.tool_calls) {
+              const name = tc.function?.name ?? "";
+              const args = (() => {
+                try {
+                  return JSON.parse(tc.function?.arguments ?? "{}") as Record<string, unknown>;
+                } catch {
+                  return {};
+                }
+              })();
+              if (toolRequiresApproval(name)) {
+                approvalCalls.push({ id: tc.id!, name, args });
+              } else {
+                autoCalls.push(tc);
+              }
+            }
+
+            for (const tc of autoCalls) {
               const name = tc.function?.name ?? "";
               const args = (() => {
                 try {
@@ -152,6 +173,37 @@ export async function POST(req: NextRequest) {
               });
               controller.enqueue(encoder.encode(streamLine({ type: "step", id: name, label: name, status: "done" })));
             }
+
+            if (approvalCalls.length > 0) {
+              const serializableMessages: unknown[] = messages.map((m) => {
+                if (m.role === "assistant" && "tool_calls" in m && m.tool_calls) {
+                  return {
+                    role: m.role,
+                    content: m.content,
+                    tool_calls: m.tool_calls.map((t) => ({
+                      id: t.id,
+                      type: "function" as const,
+                      function: { name: t.function?.name ?? "", arguments: t.function?.arguments ?? "{}" },
+                    })),
+                  };
+                }
+                if (m.role === "tool" && "tool_call_id" in m) {
+                  return { role: m.role, tool_call_id: m.tool_call_id, content: m.content };
+                }
+                return { role: m.role, content: (m as { content?: string }).content ?? "" };
+              });
+              const continuation = Buffer.from(
+                JSON.stringify({ messages: serializableMessages, params }),
+                "utf-8"
+              ).toString("base64");
+              controller.enqueue(
+                encoder.encode(streamLine({ type: "pending_tool_calls", calls: approvalCalls, continuation }))
+              );
+              sentFinal = true;
+              controller.close();
+              return;
+            }
+
             round++;
             continue;
           }

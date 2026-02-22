@@ -113,6 +113,17 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   },
 ];
 
+/** High-impact tools that require user approval before execution. */
+export const TOOLS_REQUIRING_APPROVAL: string[] = [
+  "send_outreach",
+  "schedule_interview",
+  "update_ats",
+];
+
+export function toolRequiresApproval(name: string): boolean {
+  return TOOLS_REQUIRING_APPROVAL.includes(name);
+}
+
 export type ToolHandlerContext = {
   openai?: import("openai").OpenAI;
   jobTitle?: string;

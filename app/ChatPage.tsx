@@ -30,6 +30,9 @@ type ApprovalPending = {
   fileFilenames: string[];
 };
 
+type PendingToolCall = { id: string; name: string; args: Record<string, unknown> };
+type PendingToolCalls = { calls: PendingToolCall[]; continuation: string };
+
 function ReasoningSteps({ steps, compact = false }: { steps: AgentStep[]; compact?: boolean }) {
   if (!steps.length) return null;
   return (
@@ -72,6 +75,7 @@ export function ChatPage() {
   const [documentText, setDocumentText] = useState("");
   const [documentExpanded, setDocumentExpanded] = useState(false);
   const [approvalPending, setApprovalPending] = useState<ApprovalPending | null>(null);
+  const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCalls | null>(null);
 
   // Desktop: sidebar expanded by default. Mobile: drawer closed by default.
   useEffect(() => {
@@ -83,6 +87,7 @@ export function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const documentFileInputRef = useRef<HTMLInputElement>(null);
   const fileIdsForApprovalRef = useRef<string[]>([]);
+  const toolContinueContextRef = useRef<{ nextMessages: ChatMessage[]; currentId: string | null } | null>(null);
 
   const refreshChatList = useCallback(() => {
     setChatListState(getChatList());
@@ -253,6 +258,7 @@ export function ChatPage() {
       let steps: AgentStep[] = [];
       let fullText = "";
       let gotDone = false;
+      let gotPendingToolCalls = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -263,7 +269,17 @@ export function ChatPage() {
         for (const line of lines) {
           if (!line.trim()) continue;
           try {
-            const ev = JSON.parse(line) as { type: string; id?: string; label?: string; status?: "active" | "done"; delta?: string; text?: string; error?: string };
+            const ev = JSON.parse(line) as {
+              type: string;
+              id?: string;
+              label?: string;
+              status?: "active" | "done";
+              delta?: string;
+              text?: string;
+              error?: string;
+              calls?: PendingToolCall[];
+              continuation?: string;
+            };
             if (ev.type === "step" && ev.id != null && ev.label != null && ev.status) {
               steps = steps.filter((s) => s.id !== ev.id);
               steps = [...steps, { id: ev.id, label: ev.label, status: ev.status }];
@@ -283,11 +299,23 @@ export function ChatPage() {
               setMessages(withError);
               if (currentId) setChat(currentId, { messages: withError, updatedAt: Date.now() });
               setError(ev.error);
+            } else if (ev.type === "pending_tool_calls" && Array.isArray(ev.calls) && typeof ev.continuation === "string") {
+              gotPendingToolCalls = true;
+              toolContinueContextRef.current = { nextMessages, currentId };
+              setPendingToolCalls({ calls: ev.calls, continuation: ev.continuation });
             }
           } catch {
             // skip malformed line
           }
         }
+      }
+
+      if (gotPendingToolCalls) {
+        refreshChatList();
+        setLoading(false);
+        setAgentSteps([]);
+        setStreamingText("");
+        return;
       }
 
       if (!gotDone && fullText.trim()) {
@@ -317,10 +345,140 @@ export function ChatPage() {
 
   const cancelApproval = useCallback(() => setApprovalPending(null), []);
 
+  const confirmToolCalls = useCallback(
+    async (approvedIds: string[]) => {
+      const pending = pendingToolCalls;
+      const context = toolContinueContextRef.current;
+      if (!pending || !context) return;
+      setPendingToolCalls(null);
+      toolContinueContextRef.current = null;
+      setError(null);
+      setLoading(true);
+      const { nextMessages, currentId } = context;
+      const agentTag: ChatAgentTag = "recruiting";
+
+      try {
+        const res = await fetch("/api/agent/stream/continue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ continuation: pending.continuation, approved_tool_call_ids: approvedIds }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const errMsg = data?.error ?? "Continue request failed.";
+          const withError = [...nextMessages, { role: "assistant" as const, content: `[Error] ${errMsg}`, agent: agentTag }];
+          setMessages(withError);
+          if (currentId) setChat(currentId, { messages: withError, updatedAt: Date.now() });
+          setError(errMsg);
+          setLoading(false);
+          refreshChatList();
+          return;
+        }
+        const reader = res.body?.getReader();
+        if (!reader) {
+          const withError = [...nextMessages, { role: "assistant" as const, content: "[Error] No response stream.", agent: agentTag }];
+          setMessages(withError);
+          if (currentId) setChat(currentId, { messages: withError, updatedAt: Date.now() });
+          setLoading(false);
+          refreshChatList();
+          return;
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let steps: AgentStep[] = [];
+        let fullText = "";
+        let gotDone = false;
+        let gotPendingAgain = false;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const ev = JSON.parse(line) as {
+                type: string;
+                id?: string;
+                label?: string;
+                status?: "active" | "done";
+                delta?: string;
+                text?: string;
+                error?: string;
+                calls?: PendingToolCall[];
+                continuation?: string;
+              };
+              if (ev.type === "step" && ev.id != null && ev.label != null && ev.status) {
+                steps = steps.filter((s) => s.id !== ev.id);
+                steps = [...steps, { id: ev.id, label: ev.label, status: ev.status }];
+                setAgentSteps([...steps]);
+              } else if (ev.type === "text" && typeof ev.delta === "string") {
+                fullText += ev.delta;
+                setStreamingText(fullText);
+              } else if (ev.type === "done" && typeof ev.text === "string") {
+                gotDone = true;
+                const withAssistant = [...nextMessages, { role: "assistant" as const, content: ev.text, steps: steps.length ? [...steps] : undefined, agent: agentTag }];
+                setMessages(withAssistant);
+                if (currentId) setChat(currentId, { messages: withAssistant, updatedAt: Date.now() });
+                setAgentSteps([]);
+                setStreamingText("");
+              } else if (ev.type === "error" && typeof ev.error === "string") {
+                const withError = [...nextMessages, { role: "assistant" as const, content: `[Error] ${ev.error}`, agent: agentTag }];
+                setMessages(withError);
+                if (currentId) setChat(currentId, { messages: withError, updatedAt: Date.now() });
+                setError(ev.error);
+              } else if (ev.type === "pending_tool_calls" && Array.isArray(ev.calls) && typeof ev.continuation === "string") {
+                gotPendingAgain = true;
+                toolContinueContextRef.current = { nextMessages, currentId };
+                setPendingToolCalls({ calls: ev.calls, continuation: ev.continuation });
+              }
+            } catch {
+              // skip malformed line
+            }
+          }
+        }
+
+        if (gotPendingAgain) {
+          setLoading(false);
+          setAgentSteps([]);
+          setStreamingText("");
+          refreshChatList();
+          return;
+        }
+        if (!gotDone && fullText.trim()) {
+          const withAssistant = [...nextMessages, { role: "assistant" as const, content: fullText.trim(), steps: steps.length ? [...steps] : undefined, agent: agentTag }];
+          setMessages(withAssistant);
+          if (currentId) setChat(currentId, { messages: withAssistant, updatedAt: Date.now() });
+        }
+        refreshChatList();
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : "Network error.";
+        const withError = [...nextMessages, { role: "assistant" as const, content: `[Error] ${errMsg}`, agent: agentTag }];
+        setMessages(withError);
+        if (currentId) setChat(currentId, { messages: withError, updatedAt: Date.now() });
+        setError(errMsg);
+        refreshChatList();
+      } finally {
+        setLoading(false);
+        setAgentSteps([]);
+        setStreamingText("");
+      }
+    },
+    [pendingToolCalls, refreshChatList]
+  );
+
+  const cancelToolCalls = useCallback(() => {
+    if (!pendingToolCalls) return;
+    confirmToolCalls([]);
+  }, [pendingToolCalls, confirmToolCalls]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (approvalPending) return;
+      if (approvalPending || pendingToolCalls) return;
       requestRoute();
     }
   };
@@ -335,6 +493,8 @@ export function ChatPage() {
     setAgentSteps([]);
     setStreamingText("");
     setApprovalPending(null);
+    setPendingToolCalls(null);
+    toolContinueContextRef.current = null;
     refreshChatList();
   };
 
@@ -536,6 +696,37 @@ export function ChatPage() {
 
         <footer className="sticky bottom-0 border-t border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl supports-[backdrop-filter]:bg-[var(--bg)]/70">
           <div className="max-w-3xl mx-auto px-5 py-4">
+            {pendingToolCalls ? (
+              <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4 mb-4">
+                <p className="text-[13px] text-[var(--text-secondary)] mb-2">Agent wants to run (approve before we execute)</p>
+                <ul className="list-disc list-inside text-[13px] text-[var(--text)] mb-3 space-y-1">
+                  {pendingToolCalls.calls.map((c) => (
+                    <li key={c.id}>
+                      <strong>{c.name}</strong>
+                      {c.name === "send_outreach" && c.args?.candidate_email != null ? ` → ${String(c.args.candidate_email)}` : null}
+                      {c.name === "schedule_interview" && c.args?.candidate_email != null ? ` → ${String(c.args.candidate_email)}` : null}
+                      {c.name === "update_ats" && c.args?.candidate_email != null ? ` → ${String(c.args.candidate_email)} (${String(c.args?.status ?? "")})` : null}
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => confirmToolCalls(pendingToolCalls.calls.map((c) => c.id))}
+                    className="h-8 px-3 rounded-lg bg-[var(--accent)] text-white text-[13px] font-medium hover:bg-[var(--accent-hover)]"
+                  >
+                    Approve all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => cancelToolCalls()}
+                    className="h-8 px-3 rounded-lg border border-[var(--border)] text-[var(--text-secondary)] text-[13px] font-medium hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                  >
+                    Reject all
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {approvalPending ? (
               <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4 mb-4">
                 <p className="text-[13px] text-[var(--text-secondary)] mb-1">Route to agent</p>
@@ -664,12 +855,12 @@ export function ChatPage() {
                 rows={2}
                 maxLength={MAX_MESSAGE_LENGTH + 100}
                 className="flex-1 min-h-[44px] max-h-[120px] resize-none rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[15px] text-[var(--text)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-shadow disabled:opacity-60"
-                disabled={loading || !!approvalPending}
+                disabled={loading || !!approvalPending || !!pendingToolCalls}
               />
               <button
                 type="button"
                 onClick={requestRoute}
-                disabled={loading || !!approvalPending || !input.trim() || input.length > MAX_MESSAGE_LENGTH}
+                disabled={loading || !!approvalPending || !!pendingToolCalls || !input.trim() || input.length > MAX_MESSAGE_LENGTH}
                 className="shrink-0 h-11 px-5 rounded-[var(--radius-lg)] bg-[var(--accent)] text-white text-[15px] font-medium hover:bg-[var(--accent-hover)] active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2 focus:ring-offset-[var(--bg)]"
               >
                 Send
