@@ -73,6 +73,12 @@ export async function POST(req: NextRequest) {
   let body: Body;
   try {
     const raw = await req.json();
+    if (Array.isArray(raw.history)) {
+      raw.history = raw.history.map((h: { role?: string; content?: string }) => ({
+        role: h.role,
+        content: typeof h.content === "string" ? h.content.slice(0, 8000) : "",
+      }));
+    }
     body = BODY_SCHEMA.parse(raw);
   } catch (e) {
     const message = e instanceof z.ZodError ? e.errors.map((x) => x.message).join("; ") : "Invalid request body";

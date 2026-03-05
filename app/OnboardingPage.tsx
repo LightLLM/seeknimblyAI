@@ -12,6 +12,7 @@ import {
 const JURISDICTIONS = ["NA", "CA", "US"] as const;
 type Jurisdiction = (typeof JURISDICTIONS)[number];
 const MAX_MESSAGE_LENGTH = 4000;
+const MAX_HISTORY_ITEM_LENGTH = 8000;
 
 export function OnboardingPage() {
   const [items, setItems] = useState<OnboardingItem[]>([]);
@@ -59,7 +60,10 @@ export function OnboardingPage() {
     setLoading(true);
     setStreamingText("");
 
-    const history = [...messages, { role: "user" as const, content: text }].slice(-20).slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
+    const history = [...messages, { role: "user" as const, content: text }]
+      .slice(-20)
+      .slice(0, -1)
+      .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_ITEM_LENGTH) }));
     const FETCH_TIMEOUT_MS = 60_000;
     const ac = new AbortController();
     const timeoutId = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);

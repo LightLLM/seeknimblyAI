@@ -18,6 +18,8 @@ import { Sidebar } from "./Sidebar";
 import type { ChatAgent } from "@/lib/chatRouter";
 
 const MAX_MESSAGE_LENGTH = 8000;
+/** Max length per history item content (must match API schema). */
+const MAX_HISTORY_ITEM_LENGTH = 8000;
 const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB (Vercel serverless limit ~4.5 MB)
 const ACCEPT_FILE_TYPES = "application/pdf,.txt,.md,.csv,image/jpeg,image/png,image/gif,image/webp";
 const JURISDICTIONS = ["NA", "CA", "US"] as const;
@@ -204,7 +206,10 @@ export function ChatPage() {
       setAgentSteps([]);
       setStreamingText("");
       setLoading(true);
-      const history = nextMessages.slice(-20).slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
+      const history = nextMessages.slice(-20).slice(0, -1).map((m) => ({
+        role: m.role,
+        content: m.content.slice(0, MAX_HISTORY_ITEM_LENGTH),
+      }));
       const FETCH_TIMEOUT_MS = 90_000;
       const ac = new AbortController();
       const timeoutId = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
@@ -563,7 +568,7 @@ export function ChatPage() {
       </div>
       <div className="flex-1 flex flex-col min-w-0">
         <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl supports-[backdrop-filter]:bg-[var(--bg)]/70">
-          <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
+          <div className="w-full max-w-3xl md:max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
@@ -593,7 +598,7 @@ export function ChatPage() {
         </header>
 
         <main className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-5 py-8 min-h-full">
+          <div className="w-full max-w-3xl md:max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto px-5 py-8 min-h-full">
             {messages.length === 0 && !loading && (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <p className="text-[var(--text-secondary)] text-[15px] leading-relaxed max-w-sm">
@@ -695,7 +700,7 @@ export function ChatPage() {
         </main>
 
         <footer className="sticky bottom-0 border-t border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl supports-[backdrop-filter]:bg-[var(--bg)]/70">
-          <div className="max-w-3xl mx-auto px-5 py-4">
+          <div className="w-full max-w-3xl md:max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto px-5 py-4">
             {pendingToolCalls ? (
               <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4 mb-4">
                 <p className="text-[13px] text-[var(--text-secondary)] mb-2">Agent wants to run (approve before we execute)</p>
