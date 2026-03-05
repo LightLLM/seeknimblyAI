@@ -25,7 +25,7 @@ export function LoginForm() {
         return;
       }
       if (res?.ok) {
-        window.location.reload();
+        window.location.href = "/app";
         return;
       }
       setError("Something went wrong. Please try again.");

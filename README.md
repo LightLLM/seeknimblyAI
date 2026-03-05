@@ -43,7 +43,11 @@ HR compliance chat MVP: chat with an assistant for North America (NA/CA/US) usin
    npm run dev
    ```
 
-4. Open [http://localhost:3000](http://localhost:3000). **Sign in** with the email and password set in `AUTH_EMAIL` and `AUTH_PASSWORD`. Use **Chat** for the unified assistant: type a question → we suggest an agent (Recruiting, Compliance, or Onboarding) → you **approve** or choose another → the chosen agent answers. Use **Checklist** for the new-hire onboarding checklist. Chat is persisted in `localStorage`; use **New chat** to clear. **Sign out** is in the header.
+4. Open [http://localhost:3000](http://localhost:3000). You’ll see the **corporate landing page**. Click **Get free trial**, enter a company email (and optional company name), and we’ll send a magic link to that email. Click the link to access the app. Alternatively, use **Sign in** to log in with `AUTH_EMAIL` / `AUTH_PASSWORD`. The main app lives at `/app`: chat, agent approval, and checklist. **Sign out** is in the header.
+
+**Landing and trial:** For the free-trial flow you need Supabase and Resend. In Supabase, run the SQL in [supabase/trial_signups.sql](supabase/trial_signups.sql) to create the `trial_signups` table. Set `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, and optionally `RESEND_FROM` in `.env.local`. See `.env.example` for the full list.
+
+**Payment (Stripe):** After signing in (magic link or credentials), users must complete payment setup to access the app: 15-day free trial, then billing. They can cancel anytime from **Billing** (Stripe Customer Portal). Run [supabase/subscriptions.sql](supabase/subscriptions.sql) in Supabase, then create a Product and Price in Stripe and set `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, and `STRIPE_WEBHOOK_SECRET`. Configure the webhook in Stripe to point to `/api/stripe/webhook` for `checkout.session.completed`, `customer.subscription.updated`, and `customer.subscription.deleted`.
 
 ## Deploy on Vercel
 
