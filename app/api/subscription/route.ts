@@ -12,12 +12,26 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ subscription: null }, { status: 200 });
   }
 
+  const adminEmail = (process.env.ADMIN_EMAIL ?? process.env.AUTH_EMAIL)?.trim().toLowerCase();
+  const userEmail = (token.email as string).toLowerCase();
+  if (adminEmail && userEmail === adminEmail) {
+    return NextResponse.json({
+      subscription: {
+        status: "active",
+        trial_end: null,
+        current_period_end: null,
+        has_customer: false,
+      },
+      canAccess: true,
+    });
+  }
+
   const { getSupabaseAdmin } = await import("@/lib/supabase");
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("subscriptions")
     .select("status, trial_end, current_period_end, stripe_customer_id")
-    .eq("email", (token.email as string).toLowerCase())
+    .eq("email", userEmail)
     .single();
 
   if (error || !data) {
