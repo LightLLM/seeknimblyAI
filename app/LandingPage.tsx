@@ -79,15 +79,15 @@ function useInView(threshold = 0.15) {
   const ref = useRef<HTMLDivElement>(null);
   const [inView, setInView] = useState(false);
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
     const obs = new IntersectionObserver(
-      ([e]) => setInView(e.isIntersecting),
+      ([e]) => {
+        if (e.isIntersecting) setInView(true);
+      },
       { threshold }
     );
-    obs.observe(el);
+    if (ref.current) obs.observe(ref.current);
     return () => obs.disconnect();
-  }, [threshold]);
+  }, []);
   return [ref, inView] as const;
 }
 
@@ -502,14 +502,6 @@ export function LandingPage() {
               >
                 Watch intro ▶
               </a>
-            </div>
-            <div style={{ display: "flex", gap: 28, alignItems: "center" }}>
-              {["YC-backed founders", "General Catalyst", "50 states + Canada"].map((t, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <div style={{ width: 5, height: 5, borderRadius: "50%", background: C.black }} />
-                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: C.light, letterSpacing: "0.06em" }}>{t.toUpperCase()}</span>
-                </div>
-              ))}
             </div>
           </div>
           <div style={{ animation: "fadeUp 0.7s ease 0.2s both", display: "flex", justifyContent: "center" }}>
