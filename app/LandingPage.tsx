@@ -503,14 +503,6 @@ export function LandingPage() {
                 Watch intro ▶
               </a>
             </div>
-            <div style={{ display: "flex", gap: 28, alignItems: "center" }}>
-              {["YC-backed founders", "General Catalyst", "50 states + Canada"].map((t, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <div style={{ width: 5, height: 5, borderRadius: "50%", background: C.black }} />
-                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: C.light, letterSpacing: "0.06em" }}>{t.toUpperCase()}</span>
-                </div>
-              ))}
-            </div>
           </div>
           <div style={{ animation: "fadeUp 0.7s ease 0.2s both", display: "flex", justifyContent: "center" }}>
             <ChatDemo />
@@ -918,7 +910,9 @@ export function LandingPage() {
                 Agentic HR for founders. US + Canada. Always on, always compliant.
               </p>
               <div style={{ marginTop: 20, fontFamily: "'DM Mono', monospace", fontSize: 10, color: C.light, letterSpacing: "0.06em" }}>
-                Vancouver BC · San Francisco, CA
+                hello@seeknimbly.ai
+                <br />
+                Surrey, BC · San Francisco, CA
               </div>
             </div>
             {[
