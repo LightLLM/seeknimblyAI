@@ -60,10 +60,10 @@ export async function POST(req: NextRequest) {
     const sub = event.data.object as Stripe.Subscription;
     const customerId = sub.customer as string;
     const customer = await getStripe().customers.retrieve(customerId);
-    const email =
-      typeof customer !== "deleted" && customer.email
-        ? customer.email.toLowerCase()
-        : null;
+    if ("deleted" in customer && customer.deleted) {
+      return NextResponse.json({ received: true });
+    }
+    const email = (customer as Stripe.Customer).email?.toLowerCase() ?? null;
     if (!email) return NextResponse.json({ received: true });
 
     const trialEnd = sub.trial_end ? new Date(sub.trial_end * 1000) : null;
