@@ -2,9 +2,9 @@
 
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
-export default function AuthVerifyPage() {
+function AuthVerifyInner() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
 
@@ -43,5 +43,19 @@ export default function AuthVerifyPage() {
         {status === "loading" ? "Verifying your link…" : "Redirecting…"}
       </p>
     </div>
+  );
+}
+
+export default function AuthVerifyPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-[var(--bg)]">
+          <p className="text-[var(--text-tertiary)] text-[15px]">Verifying your link…</p>
+        </div>
+      }
+    >
+      <AuthVerifyInner />
+    </Suspense>
   );
 }
