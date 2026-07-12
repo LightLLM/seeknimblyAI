@@ -56,6 +56,44 @@ HR compliance chat MVP: chat with an assistant for North America (NA/CA/US) usin
 2. **Streaming**: The chat stream route uses `maxDuration = 60` (also set in `vercel.json`). If the stream returns no text (e.g. on Vercel), the route automatically retries with a non-streaming request and sends that response. If chat still shows “no response”, check **Vercel → Project → Settings → Environment Variables** for `OPENAI_API_KEY` and `OPENAI_MODEL` (e.g. `gpt-4o`) for Production, then redeploy. In **Deployments → Logs**, look for `[api/hr/stream]` to see whether the fallback ran or failed.
 3. **File upload**: Request body is limited to ~4.5 MB on Vercel. The app limits uploads to **4 MB** per request. Keep files under 4 MB or upload one at a time.
 
+## Agentic platform (v2) — seven autonomous agents
+
+The unified chat now routes across **seven tool-using agents** via an LLM router (keyword fallback when no API key): four HR service agents — **Recruiting, Onboarding, Training & Development, Compliance** — plus three lifecycle agents that run Seeknimbly itself — **Lead Gen & Outreach, Sales Pipeline, Client Onboarding**.
+
+### Architecture
+
+```
+lib/agents/
+  meta.ts        # client-safe ids/labels/samples (chat UI uses this)
+  types.ts       # AgentDefinition, AgentTool, ToolContext
+  prompts.ts     # system prompts incl. HARD_RULES (draft-never-send, HITL, privacy, bias-safe)
+  tool-helpers.ts# makeTool() + createDraft() → approval outbox
+  hr-tools.ts    # DB-backed tools: ATS, statutory checklists, learning paths, compliance events
+  lifecycle-tools.ts # CRM, scoring, proposals, client provisioning
+  registry.ts    # assembles the seven agents
+  router.ts      # LLM intent router + keyword fallback
+  runtime.ts     # generic tool loop, approval pauses, audit logging
+lib/store.ts     # Supabase when configured, in-memory demo mode otherwise
+lib/audit.ts     # append-only audit log
+```
+
+### Safety rails (enforced in code, not just prompts)
+- **Draft, never send** — every outbound email/posting/proposal becomes a `pending` row in `outbox_drafts`; a human approves it at **/app/approvals**.
+- **Approval gates** — state-mutating tools (`update_ats`, `update_lead_stage`, `create_client`) pause the run (`pending_tool_calls` + continuation token) until the user approves in-chat.
+- **Audit trail** — every tool execution and decision is logged append-only; view at **/app/audit**.
+
+### API
+- `POST /api/agents/[agentId]/stream` — run an agent (`recruiting | onboarding | training | compliance | lead_gen | sales | client_onboarding`). NDJSON: `step | text | done | error | pending_tool_calls`.
+- `POST /api/agents/[agentId]/stream/continue` — resume after approval: `{ continuation, decisions: [{id, name, args, approved}] }`.
+- `GET/POST /api/approvals` — outbox list + approve/reject.
+- `GET /api/audit` — audit trail.
+- `POST /api/chat` — now returns the new agent ids (LLM-routed; `method: "llm" | "keyword"`).
+
+### Database
+Run `supabase/agents_schema.sql` in the Supabase SQL editor (in addition to the existing two scripts). Without Supabase configured the platform still works in **demo mode** (in-memory, flagged in tool output).
+
+See `REQUIREMENTS.md` for the full functional spec derived from the data room and the seeknimbly-hermes agent design.
+
 ## Unified chat (Recruiting, Compliance, Onboarding, Learning & Development)
 
 One chat interface with four agents. Flow:

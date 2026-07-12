@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { signOut } from "next-auth/react";
 import type { Chat } from "@/lib/storage";
 
@@ -83,7 +84,29 @@ export function Sidebar({
                 ))}
               </ul>
             </nav>
-            <div className="p-2 border-t border-[var(--border)] shrink-0">
+            <div className="px-2 pb-1 border-t border-[var(--border)] pt-2 shrink-0 space-y-0.5">
+              <Link
+                href="/app/approvals"
+                className="flex items-center gap-2 h-9 px-3 rounded-lg text-[13px] font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] transition-colors"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
+                  <path d="M22 4L12 14.01l-3-3" />
+                </svg>
+                Approvals
+              </Link>
+              <Link
+                href="/app/audit"
+                className="flex items-center gap-2 h-9 px-3 rounded-lg text-[13px] font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] transition-colors"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                  <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+                </svg>
+                Audit trail
+              </Link>
+            </div>
+            <div className="p-2 shrink-0">
               <button
                 type="button"
                 onClick={() => signOut({ callbackUrl: "/" })}

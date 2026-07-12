@@ -12,7 +12,18 @@ export type AgentStep = {
   status: "active" | "done";
 };
 
-export type ChatAgentTag = "recruiting" | "compliance" | "onboarding" | "learning_development";
+export const CHAT_AGENT_TAGS = [
+  "recruiting",
+  "compliance",
+  "onboarding",
+  "training",
+  "lead_gen",
+  "sales",
+  "client_onboarding",
+  "learning_development", // legacy tag kept so old saved chats still load
+] as const;
+
+export type ChatAgentTag = (typeof CHAT_AGENT_TAGS)[number];
 
 export type ChatMessage = {
   role: "user" | "assistant";
@@ -53,7 +64,7 @@ function parseChatMessage(m: unknown): ChatMessage | null {
   const attachments = (m as ChatMessage).attachments;
   if (attachments !== undefined && (!Array.isArray(attachments) || attachments.some((a) => typeof a?.name !== "string"))) return null;
   const agent = (m as ChatMessage).agent;
-  if (agent !== undefined && !["recruiting", "compliance", "onboarding", "learning_development"].includes(agent)) return null;
+  if (agent !== undefined && !(CHAT_AGENT_TAGS as readonly string[]).includes(agent)) return null;
   return m as ChatMessage;
 }
 

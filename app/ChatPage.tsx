@@ -15,7 +15,7 @@ import {
   type ChatAgentTag,
 } from "@/lib/storage";
 import { Sidebar } from "./Sidebar";
-import type { ChatAgent } from "@/lib/chatRouter";
+import { AGENTS_META, agentLabel } from "@/lib/agents/meta";
 
 const MAX_MESSAGE_LENGTH = 8000;
 /** Max length per history item content (must match API schema). */
@@ -27,13 +27,13 @@ type Jurisdiction = (typeof JURISDICTIONS)[number];
 
 type ApprovalPending = {
   message: string;
-  suggestedAgent: ChatAgent;
+  suggestedAgent: ChatAgentTag;
   reason: string;
   fileFilenames: string[];
 };
 
 type PendingToolCall = { id: string; name: string; args: Record<string, unknown> };
-type PendingToolCalls = { calls: PendingToolCall[]; continuation: string };
+type PendingToolCalls = { calls: PendingToolCall[]; continuation: string; agent: ChatAgentTag };
 
 function ReasoningSteps({ steps, compact = false }: { steps: AgentStep[]; compact?: boolean }) {
   if (!steps.length) return null;
@@ -169,7 +169,7 @@ export function ChatPage() {
         setLoading(false);
         return;
       }
-      const { suggestedAgent, reason } = (await res.json()) as { suggestedAgent: ChatAgent; reason: string };
+      const { suggestedAgent, reason } = (await res.json()) as { suggestedAgent: ChatAgentTag; reason: string };
       setApprovalPending({ message: text, suggestedAgent, reason, fileFilenames });
       setInput("");
     } catch {
@@ -180,7 +180,7 @@ export function ChatPage() {
   }, [input, loading, approvalPending, attachedFiles]);
 
   const confirmRoute = useCallback(
-    async (chosenAgent: ChatAgent) => {
+    async (chosenAgent: ChatAgentTag) => {
       const pending = approvalPending;
       if (!pending || loading) return;
       setApprovalPending(null);
@@ -216,19 +216,21 @@ export function ChatPage() {
       const fileIds = fileIdsForApprovalRef.current;
       const agentTag: ChatAgentTag = chosenAgent;
       try {
-        const url = chosenAgent === "recruiting" ? "/api/agent/stream" : "/api/hr/stream";
-        const body: Record<string, unknown> =
-          chosenAgent === "recruiting"
-            ? { message: pending.message, history }
-            : {
-                message: pending.message,
-                jurisdiction,
-                history,
-                ...(chosenAgent === "onboarding" && { mode: "onboarding" }),
-                ...(chosenAgent === "learning_development" && { mode: "learning_development" }),
-                ...(chosenAgent === "compliance" && documentText.trim() && { document_text: documentText.trim().slice(0, 12000) }),
-                ...(chosenAgent === "compliance" && fileIds.length > 0 && { file_ids: fileIds, file_filenames: pending.fileFilenames }),
-              };
+        // Compliance questions about an attached document use the document-grounded
+        // /api/hr/stream flow (quotes, SOC2/ISO mapping). Everything else runs the
+        // full tool-using agent at /api/agents/[id]/stream.
+        const complianceDocMode =
+          chosenAgent === "compliance" && (Boolean(documentText.trim()) || fileIds.length > 0);
+        const url = complianceDocMode ? "/api/hr/stream" : `/api/agents/${chosenAgent}/stream`;
+        const body: Record<string, unknown> = complianceDocMode
+          ? {
+              message: pending.message,
+              jurisdiction,
+              history,
+              ...(documentText.trim() && { document_text: documentText.trim().slice(0, 12000) }),
+              ...(fileIds.length > 0 && { file_ids: fileIds, file_filenames: pending.fileFilenames }),
+            }
+          : { message: pending.message, history, jurisdiction };
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -307,7 +309,7 @@ export function ChatPage() {
             } else if (ev.type === "pending_tool_calls" && Array.isArray(ev.calls) && typeof ev.continuation === "string") {
               gotPendingToolCalls = true;
               toolContinueContextRef.current = { nextMessages, currentId };
-              setPendingToolCalls({ calls: ev.calls, continuation: ev.continuation });
+              setPendingToolCalls({ calls: ev.calls, continuation: ev.continuation, agent: chosenAgent });
             }
           } catch {
             // skip malformed line
@@ -360,13 +362,19 @@ export function ChatPage() {
       setError(null);
       setLoading(true);
       const { nextMessages, currentId } = context;
-      const agentTag: ChatAgentTag = "recruiting";
+      const agentTag: ChatAgentTag = pending.agent;
 
       try {
-        const res = await fetch("/api/agent/stream/continue", {
+        const decisions = pending.calls.map((c) => ({
+          id: c.id,
+          name: c.name,
+          args: c.args ?? {},
+          approved: approvedIds.includes(c.id),
+        }));
+        const res = await fetch(`/api/agents/${pending.agent}/stream/continue`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ continuation: pending.continuation, approved_tool_call_ids: approvedIds }),
+          body: JSON.stringify({ continuation: pending.continuation, decisions, jurisdiction }),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -438,7 +446,7 @@ export function ChatPage() {
               } else if (ev.type === "pending_tool_calls" && Array.isArray(ev.calls) && typeof ev.continuation === "string") {
                 gotPendingAgain = true;
                 toolContinueContextRef.current = { nextMessages, currentId };
-                setPendingToolCalls({ calls: ev.calls, continuation: ev.continuation });
+                setPendingToolCalls({ calls: ev.calls, continuation: ev.continuation, agent: pending.agent });
               }
             } catch {
               // skip malformed line
@@ -472,7 +480,7 @@ export function ChatPage() {
         setStreamingText("");
       }
     },
-    [pendingToolCalls, refreshChatList]
+    [pendingToolCalls, refreshChatList, jurisdiction]
   );
 
   const cancelToolCalls = useCallback(() => {
@@ -602,7 +610,7 @@ export function ChatPage() {
             {messages.length === 0 && !loading && (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <p className="text-[var(--text-secondary)] text-[15px] leading-relaxed max-w-sm">
-                  Ask anything — recruiting, compliance, onboarding, or learning & development. We’ll suggest the right agent; you approve before we answer.
+                  Ask anything — recruiting, onboarding, training, compliance, or growing Seeknimbly itself. We’ll suggest the right agent; you approve before it acts.
                 </p>
                 <p className="mt-2 text-[var(--text-tertiary)] text-[13px]">
                   Jurisdiction: {jurisdiction}
@@ -611,12 +619,7 @@ export function ChatPage() {
                   Try these prompts
                 </p>
                 <div className="flex flex-wrap justify-center gap-3 max-w-2xl">
-                  {[
-                    { label: "Recruiting", prompt: "Find me 5 backend engineers in Toronto with 3+ years experience." },
-                    { label: "Compliance", prompt: "What are the overtime rules in Ontario?" },
-                    { label: "Onboarding", prompt: "What should I do on my first day? Who do I contact for IT access?" },
-                    { label: "Learning & Development", prompt: "What training do you recommend for leadership development?" },
-                  ].map(({ label, prompt }) => (
+                  {AGENTS_META.map(({ label, sample: prompt }) => (
                     <button
                       key={label}
                       type="button"
@@ -651,7 +654,7 @@ export function ChatPage() {
                     }`}
                   >
                     {msg.role === "assistant" && msg.agent && (
-                      <p className="text-[11px] uppercase tracking-wider text-[var(--text-tertiary)] mb-1.5">{msg.agent === "learning_development" ? "Learning & Development" : msg.agent} agent</p>
+                      <p className="text-[11px] uppercase tracking-wider text-[var(--text-tertiary)] mb-1.5">{agentLabel(msg.agent)} agent</p>
                     )}
                     {msg.role === "user" && msg.attachments && msg.attachments.length > 0 && (
                       <p className="text-[12px] opacity-90 mb-2">
@@ -705,14 +708,18 @@ export function ChatPage() {
               <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4 mb-4">
                 <p className="text-[13px] text-[var(--text-secondary)] mb-2">Agent wants to run (approve before we execute)</p>
                 <ul className="list-disc list-inside text-[13px] text-[var(--text)] mb-3 space-y-1">
-                  {pendingToolCalls.calls.map((c) => (
-                    <li key={c.id}>
-                      <strong>{c.name}</strong>
-                      {c.name === "send_outreach" && c.args?.candidate_email != null ? ` → ${String(c.args.candidate_email)}` : null}
-                      {c.name === "schedule_interview" && c.args?.candidate_email != null ? ` → ${String(c.args.candidate_email)}` : null}
-                      {c.name === "update_ats" && c.args?.candidate_email != null ? ` → ${String(c.args.candidate_email)} (${String(c.args?.status ?? "")})` : null}
-                    </li>
-                  ))}
+                  {pendingToolCalls.calls.map((c) => {
+                    const target =
+                      c.args?.candidate_email ?? c.args?.recipient ?? c.args?.legal_name ?? c.args?.company ?? c.args?.stage ?? null;
+                    const status = c.args?.status ?? c.args?.stage ?? null;
+                    return (
+                      <li key={c.id}>
+                        <strong>{c.name}</strong>
+                        {target != null ? ` → ${String(target)}` : null}
+                        {status != null && c.name === "update_ats" ? ` (${String(status)})` : null}
+                      </li>
+                    );
+                  })}
                 </ul>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
@@ -738,7 +745,7 @@ export function ChatPage() {
                 <p className="text-[15px] text-[var(--text)] mb-2 line-clamp-2">&quot;{approvalPending.message}&quot;</p>
                 <p className="text-[12px] text-[var(--text-tertiary)] mb-3">{approvalPending.reason}</p>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[12px] text-[var(--text-secondary)] mr-1">Suggested: <strong className="text-[var(--text)]">{approvalPending.suggestedAgent === "learning_development" ? "Learning & Development" : approvalPending.suggestedAgent.charAt(0).toUpperCase() + approvalPending.suggestedAgent.slice(1)}</strong></span>
+                  <span className="text-[12px] text-[var(--text-secondary)] mr-1">Suggested: <strong className="text-[var(--text)]">{agentLabel(approvalPending.suggestedAgent)}</strong></span>
                   <button
                     type="button"
                     onClick={() => confirmRoute(approvalPending.suggestedAgent)}
@@ -746,14 +753,14 @@ export function ChatPage() {
                   >
                     Approve
                   </button>
-                  {(["recruiting", "compliance", "onboarding", "learning_development"] as const).map((agent) => (
+                  {AGENTS_META.map((agent) => (
                     <button
-                      key={agent}
+                      key={agent.id}
                       type="button"
-                      onClick={() => confirmRoute(agent)}
-                      className={`h-8 px-3 rounded-lg text-[13px] font-medium ${agent === approvalPending.suggestedAgent ? "bg-[var(--surface-hover)] text-[var(--text)]" : "border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"}`}
+                      onClick={() => confirmRoute(agent.id as ChatAgentTag)}
+                      className={`h-8 px-3 rounded-lg text-[13px] font-medium ${agent.id === approvalPending.suggestedAgent ? "bg-[var(--surface-hover)] text-[var(--text)]" : "border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"}`}
                     >
-                      {agent === "learning_development" ? "Learning & Development" : agent.charAt(0).toUpperCase() + agent.slice(1)}
+                      {agent.label}
                     </button>
                   ))}
                   <button type="button" onClick={cancelApproval} className="h-8 px-3 rounded-lg text-[13px] text-[var(--text-tertiary)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]">
@@ -856,7 +863,7 @@ export function ChatPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask Recruiting, Compliance, Onboarding, or Learning & Development…"
+                placeholder="Ask any agent — Recruiting, Onboarding, Training, Compliance, Lead Gen, Sales, Client Onboarding…"
                 rows={2}
                 maxLength={MAX_MESSAGE_LENGTH + 100}
                 className="flex-1 min-h-[44px] max-h-[120px] resize-none rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[15px] text-[var(--text)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-shadow disabled:opacity-60"

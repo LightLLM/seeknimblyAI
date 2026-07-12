@@ -1,0 +1,106 @@
+/**
+ * POST /api/agents/[agentId]/stream — run any registered agent.
+ * NDJSON stream: step | text | done | error | pending_tool_calls.
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
+import { z } from "zod";
+import { getOpenAIApiKey, getOpenAIModel } from "@/lib/openai";
+import { check, record, rateLimitKey } from "@/lib/rateLimit";
+import { getAgent } from "@/lib/agents/registry";
+import { runAgentLoop, type ChatMessage, type StreamEvent } from "@/lib/agents/runtime";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
+const BODY_SCHEMA = z.object({
+  message: z.string().min(1).max(8000),
+  history: z
+    .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(8000) }))
+    .max(20)
+    .optional(),
+  jurisdiction: z.enum(["NA", "CA", "US"]).optional(),
+});
+
+function getClientIp(req: NextRequest): string {
+  const forwarded = req.headers.get("x-forwarded-for");
+  return forwarded?.split(",")[0]?.trim() || "unknown";
+}
+
+function streamLine(ev: StreamEvent): string {
+  return JSON.stringify(ev) + "\n";
+}
+
+export async function POST(req: NextRequest, { params }: { params: { agentId: string } }) {
+  const agent = getAgent(params.agentId);
+  if (!agent) {
+    return NextResponse.json({ error: `Unknown agent: ${params.agentId}` }, { status: 404 });
+  }
+
+  const key = rateLimitKey(getClientIp(req), `agents:${agent.id}`);
+  if (!check(key)) {
+    return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
+  }
+
+  let body: z.infer<typeof BODY_SCHEMA>;
+  try {
+    body = BODY_SCHEMA.parse(await req.json());
+  } catch (e) {
+    const message = e instanceof z.ZodError ? e.errors.map((x) => x.message).join("; ") : "Invalid request body";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+
+  const apiKey = getOpenAIApiKey();
+  if (!apiKey) {
+    return NextResponse.json({ error: "Server configuration error: OpenAI API key not configured." }, { status: 500 });
+  }
+  record(key);
+
+  const model = getOpenAIModel("gpt-4o");
+  const openai = new OpenAI({ apiKey });
+  const messages: ChatMessage[] = [
+    { role: "system", content: agent.getSystemPrompt({ jurisdiction: body.jurisdiction }) },
+    ...(body.history ?? []).map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
+    { role: "user", content: body.message },
+  ];
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      let closed = false;
+      const emit = (ev: StreamEvent) => {
+        if (closed) return;
+        controller.enqueue(encoder.encode(streamLine(ev)));
+        if (ev.type === "done" || ev.type === "error" || ev.type === "pending_tool_calls") closed = true;
+      };
+      try {
+        emit({ type: "step", id: "agent", label: `${agent.label} agent thinking…`, status: "active" });
+        await runAgentLoop({
+          agent,
+          openai,
+          model,
+          messages,
+          ctx: { openai, model, jurisdiction: body.jurisdiction },
+          emit,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Request failed";
+        console.error(`[api/agents/${agent.id}/stream]`, message, err);
+        emit({ type: "error", error: message });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new NextResponse(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson",
+      "Cache-Control": "no-cache, no-store",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}

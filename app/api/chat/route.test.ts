@@ -36,12 +36,12 @@ describe("POST /api/chat", () => {
     expect(data.suggestedAgent).toBe("compliance");
   });
 
-  it("returns learning_development for training message", async () => {
+  it("returns training for training message", async () => {
     const req = buildRequest({ message: "What training do you recommend for leadership development?" });
     const res = await POST(req);
     expect(res.status).toBe(200);
     const data = (await res.json()) as { suggestedAgent: string };
-    expect(data.suggestedAgent).toBe("learning_development");
+    expect(data.suggestedAgent).toBe("training");
   });
 
   it("returns 400 when message is missing", async () => {
