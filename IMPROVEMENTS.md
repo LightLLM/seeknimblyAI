@@ -1,25 +1,27 @@
 # SeeknimblyAI — Improvement Recommendations
 
-All coded roadmap items from the data-room critique are shipped.
+Coded roadmap from the data-room critique is shipped, including hardening stages below.
 
 ## Done
 
 1–18 product/engineering items (loop, tenancy, dashboards, web search, metrics, streaming, intake, eval, error report, rate limits, model split, PII audit, annual Stripe, Day-1 demo, partners).
 
-**Remaining app surfaces (this pass):**
-- Team invites + Settings (`/app/settings`)
-- Legal / CASL / E&O checklist + engagement-letter skeleton (#19 in-product)
-- Onboarding hire/task dashboard + personal checklist route
-- Training / L&D paths dashboard
-- Quarterly compliance audit automation + cron
-- Stripe `plan` on subscriptions + portal return to Settings
+**Product surfaces:** team invites + Settings, legal/CASL checklist, onboarding/training dashboards, quarterly audit, Stripe `plan`.
+
+**Hardening (next stage):**
+- Invite revoke + member remove
+- Membership-aware RLS policies (`is_org_member`) for future client login
+- Certification expiry cron + 90-day retention sweep
+- `update_hire_status` tool; offer-accept + draft-reject metric proxies
+- Audit CSV export
+- Versioned skill-pack metadata on `/api/agents`
 
 ## Still human / process (not code)
 
 - Counsel completes engagement letter and CASL review
 - Bind E&O policy
-- Configure Stripe Customer Portal products for monthly↔annual switching in the Stripe Dashboard
+- Configure Stripe Customer Portal products for monthly↔annual switching
 
 ## Ops reminder
 
-Re-run `supabase/agents_schema.sql` and `supabase/subscriptions.sql` after pull (org_invites, plan column, channel_partner_lead_id).
+Re-run `supabase/agents_schema.sql` and `supabase/subscriptions.sql` after pull (org_invites, RLS policies, plan column).

@@ -11,7 +11,12 @@ type MetricsSnapshot = {
   time_to_shortlist_hours_median: number | null;
   drafts_pending: number;
   drafts_approved_or_sent: number;
+  drafts_rejected?: number;
   approval_turnaround_hours_median: number | null;
+  draft_reject_rate?: number | null;
+  applications_offer?: number;
+  applications_hired?: number;
+  offer_accept_rate?: number | null;
   hires_total: number;
   retained_90d: number;
   retention_90d_rate: number | null;
@@ -69,6 +74,16 @@ export default function MetricsPage() {
           label: "90-day retention",
           value: fmtRate(metrics.retention_90d_rate),
           hint: `${metrics.retained_90d} retained · ${metrics.hires_total} hires`,
+        },
+        {
+          label: "Offer accept rate",
+          value: fmtRate(metrics.offer_accept_rate ?? null),
+          hint: `${metrics.applications_hired ?? 0} hired of ${metrics.applications_offer ?? 0} offers`,
+        },
+        {
+          label: "Draft reject rate",
+          value: fmtRate(metrics.draft_reject_rate ?? null),
+          hint: `${metrics.drafts_rejected ?? 0} rejected · quality proxy`,
         },
         {
           label: "Closed-won leads",

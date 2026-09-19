@@ -48,6 +48,7 @@ export default function AuditPage() {
       <header className="border-b border-[var(--border)] px-4 sm:px-5 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
         <Link href="/app" className="text-[13px] text-[var(--text-secondary)] hover:text-[var(--text)]">← Chat</Link>
         <h1 className="text-[16px] sm:text-[17px] font-semibold flex-1 min-w-[120px]">Audit trail</h1>
+        <a href="/api/audit?format=csv" className="text-[13px] text-[var(--text-secondary)] hover:text-[var(--text)]">Export CSV</a>
         <Link href="/app/approvals" className="text-[13px] text-[var(--text-secondary)] hover:text-[var(--text)]">Approvals</Link>
       </header>
       <main className="max-w-5xl mx-auto px-4 sm:px-5 py-6">

@@ -298,6 +298,7 @@ create table if not exists public.org_invites (
   status text not null default 'pending', -- pending | accepted | revoked
   expires_at timestamptz,
   accepted_at timestamptz,
+  revoked_at timestamptz,
   created_at timestamptz not null default now()
 );
 create index if not exists idx_org_invites_token on public.org_invites (token);
@@ -328,9 +329,73 @@ begin
     'candidates','jobs','applications','hires','onboarding_tasks',
     'learning_paths','learning_items','compliance_events','leads','clients',
     'client_modules','outbox_drafts','memories','audit_log',
-    'conversations','automation_settings','automation_runs','orgs','org_members'
+    'conversations','automation_settings','automation_runs','orgs','org_members',
+    'org_invites'
   ]
   loop
     execute format('alter table public.%I enable row level security', t);
   end loop;
 end $$;
+
+-- Membership-aware policies for future client login via Supabase Auth JWT email.
+-- Until JWT email is present these policies deny; service_role continues to bypass.
+create or replace function public.is_org_member(check_org uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.org_members m
+    where m.org_id = check_org
+      and lower(m.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  );
+$$;
+
+revoke all on function public.is_org_member(uuid) from public;
+grant execute on function public.is_org_member(uuid) to authenticated;
+
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'candidates','jobs','applications','hires','onboarding_tasks',
+    'learning_paths','learning_items','compliance_events','leads','clients',
+    'client_modules','outbox_drafts','memories','audit_log',
+    'conversations','automation_settings','automation_runs'
+  ]
+  loop
+    execute format('drop policy if exists %I on public.%I', t || '_org_select', t);
+    execute format(
+      'create policy %I on public.%I for select to authenticated using (public.is_org_member(org_id))',
+      t || '_org_select', t
+    );
+    execute format('drop policy if exists %I on public.%I', t || '_org_insert', t);
+    execute format(
+      'create policy %I on public.%I for insert to authenticated with check (public.is_org_member(org_id))',
+      t || '_org_insert', t
+    );
+    execute format('drop policy if exists %I on public.%I', t || '_org_update', t);
+    execute format(
+      'create policy %I on public.%I for update to authenticated using (public.is_org_member(org_id)) with check (public.is_org_member(org_id))',
+      t || '_org_update', t
+    );
+  end loop;
+end $$;
+
+drop policy if exists orgs_member_select on public.orgs;
+create policy orgs_member_select on public.orgs
+  for select to authenticated
+  using (public.is_org_member(id));
+
+drop policy if exists org_members_self_select on public.org_members;
+create policy org_members_self_select on public.org_members
+  for select to authenticated
+  using (public.is_org_member(org_id));
+
+drop policy if exists org_invites_member_select on public.org_invites;
+create policy org_invites_member_select on public.org_invites
+  for select to authenticated
+  using (public.is_org_member(org_id));

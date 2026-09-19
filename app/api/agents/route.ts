@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { AGENTS } from "@/lib/agents/registry";
+import { skillPacksForAgent } from "@/lib/agents/skill-packs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ export async function GET(req: NextRequest) {
       label: a.label,
       description: a.description,
       sample: a.sample,
+      skill_packs: skillPacksForAgent(a.id),
       tools: a.tools.map((t) => ({
         name: t.definition.function.name,
         description: t.definition.function.description ?? "",

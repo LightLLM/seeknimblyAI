@@ -54,7 +54,7 @@ export const AUTOMATIONS: Automation[] = [
     cadence: "Daily 9:00",
     agent: "onboarding",
     prompt:
-      "Daily sweep: use list_onboarding_status to find check-in tasks and statutory tasks due today or overdue across all hires. Summarize by hire what needs action, most urgent first. Flag anything statutory that is overdue.",
+      "Daily sweep: use list_onboarding_status to find check-in tasks and statutory tasks due today or overdue across all hires. For hires past day 90 who are still employed, call update_hire_status to retained_90d; if they left, use exited. Summarize by hire what needs action, most urgent first. Flag anything statutory that is overdue.",
   },
   {
     id: "sales-followups",

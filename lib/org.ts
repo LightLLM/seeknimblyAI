@@ -4,7 +4,7 @@
  */
 
 import { randomBytes } from "crypto";
-import { insertRow, listRows, updateRow, getRow, isSupabaseConfigured } from "@/lib/store";
+import { insertRow, listRows, updateRow, getRow, deleteRow, isSupabaseConfigured } from "@/lib/store";
 
 export type OrgContext = {
   orgId: string;
@@ -107,6 +107,9 @@ export async function acceptInvite(token: string, acceptorEmail: string): Promis
   if (String(invite.email).toLowerCase() !== email) {
     throw new Error("Sign in with the invited email address to accept.");
   }
+  if (String(invite.status) === "revoked") {
+    throw new Error("This invite was revoked.");
+  }
   if (invite.expires_at && new Date(String(invite.expires_at)).getTime() < Date.now()) {
     throw new Error("This invite has expired.");
   }
@@ -134,6 +137,46 @@ export async function acceptInvite(token: string, acceptorEmail: string): Promis
     role: String(invite.role ?? "member"),
     orgName: String(org?.name ?? "Workspace"),
   };
+}
+
+export async function revokeInvite(orgId: string, inviteId: string): Promise<void> {
+  const invite = await getRow("org_invites", inviteId);
+  if (!invite || String(invite.org_id) !== orgId) {
+    throw new Error("Invite not found.");
+  }
+  if (String(invite.status) !== "pending") {
+    throw new Error("Only pending invites can be revoked.");
+  }
+  await updateRow("org_invites", inviteId, {
+    status: "revoked",
+    revoked_at: new Date().toISOString(),
+  });
+}
+
+export async function removeOrgMember(params: {
+  orgId: string;
+  memberId: string;
+  actorEmail: string;
+  actorRole: string;
+}): Promise<void> {
+  const members = await listOrgMembers(params.orgId);
+  const target = members.find((m) => String(m.id) === params.memberId);
+  if (!target) throw new Error("Member not found.");
+  if (String(target.email).toLowerCase() === params.actorEmail.trim().toLowerCase()) {
+    throw new Error("You cannot remove yourself.");
+  }
+  const targetRole = String(target.role ?? "member");
+  if (targetRole === "owner") {
+    throw new Error("Cannot remove the workspace owner.");
+  }
+  if (params.actorRole === "admin" && targetRole === "admin") {
+    throw new Error("Admins cannot remove other admins.");
+  }
+  if (params.actorRole !== "owner" && params.actorRole !== "admin") {
+    throw new Error("Only owners/admins can remove members.");
+  }
+  const ok = await deleteRow("org_members", params.memberId);
+  if (!ok) throw new Error("Member not found.");
 }
 
 export function orgConfiguredNote(): string | undefined {

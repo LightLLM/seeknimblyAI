@@ -38,6 +38,14 @@
     {
       "path": "/api/cron?task=quarterly-audit",
       "schedule": "0 9 1 1,4,7,10 *"
+    },
+    {
+      "path": "/api/cron?task=cert-expiry",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron?task=retention-sweep",
+      "schedule": "0 7 * * *"
     }
   ]
 }

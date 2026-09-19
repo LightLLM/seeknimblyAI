@@ -27,7 +27,13 @@ export type MetricsSnapshot = {
   time_to_shortlist_hours_median: number | null;
   drafts_pending: number;
   drafts_approved_or_sent: number;
+  drafts_rejected: number;
   approval_turnaround_hours_median: number | null;
+  /** Rejected / (approved+sent+rejected) — proxy for client edit pressure. */
+  draft_reject_rate: number | null;
+  applications_offer: number;
+  applications_hired: number;
+  offer_accept_rate: number | null;
   hires_total: number;
   retained_90d: number;
   retention_90d_rate: number | null;
@@ -69,6 +75,11 @@ export async function computeMetrics(): Promise<MetricsSnapshot> {
 
   const retained = hires.filter((h) => String(h.status) === "retained_90d");
   const exitedOrRetained = hires.filter((h) => ["retained_90d", "exited"].includes(String(h.status)));
+  const approvedOrSent = drafts.filter((d) => d.status === "approved" || d.status === "sent");
+  const rejected = drafts.filter((d) => d.status === "rejected");
+  const offerApps = applications.filter((a) => ["offer", "hired"].includes(String(a.status)));
+  const hiredApps = applications.filter((a) => String(a.status) === "hired");
+  const decidedDrafts = approvedOrSent.length + rejected.length;
 
   return {
     compliance_events_caught: events.length,
@@ -77,8 +88,13 @@ export async function computeMetrics(): Promise<MetricsSnapshot> {
     applications_screened: screened.length,
     time_to_shortlist_hours_median: median(shortlistHours),
     drafts_pending: drafts.filter((d) => d.status === "pending").length,
-    drafts_approved_or_sent: drafts.filter((d) => d.status === "approved" || d.status === "sent").length,
+    drafts_approved_or_sent: approvedOrSent.length,
+    drafts_rejected: rejected.length,
     approval_turnaround_hours_median: median(approvalHours),
+    draft_reject_rate: decidedDrafts > 0 ? rejected.length / decidedDrafts : null,
+    applications_offer: offerApps.length,
+    applications_hired: hiredApps.length,
+    offer_accept_rate: offerApps.length > 0 ? hiredApps.length / offerApps.length : null,
     hires_total: hires.length,
     retained_90d: retained.length,
     retention_90d_rate:

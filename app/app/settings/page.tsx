@@ -79,6 +79,26 @@ export default function SettingsPage() {
     }
   }
 
+  async function teamAction(body: { action: "revoke_invite"; invite_id: string } | { action: "remove_member"; member_id: string }) {
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch("/api/org/members", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "Action failed");
+      setNote(body.action === "revoke_invite" ? "Invite revoked." : "Member removed.");
+      await loadTeam();
+    } catch (ex) {
+      setNote(ex instanceof Error ? ex.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function openPortal() {
     setPortalBusy(true);
     try {
@@ -164,9 +184,21 @@ export default function SettingsPage() {
               <h2 className="text-[12px] uppercase tracking-wider text-[var(--text-tertiary)] mb-2">Members</h2>
               <ul className="space-y-1.5">
                 {members.map((m) => (
-                  <li key={m.id} className="flex justify-between text-[13px] px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-                    <span>{m.email}</span>
-                    <span className="text-[var(--text-tertiary)]">{m.role}</span>
+                  <li key={m.id} className="flex justify-between gap-2 items-center text-[13px] px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                    <span className="min-w-0 truncate">{m.email}</span>
+                    <span className="flex items-center gap-2 shrink-0">
+                      <span className="text-[var(--text-tertiary)]">{m.role}</span>
+                      {org && (org.role === "owner" || org.role === "admin") && m.role !== "owner" && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          className="text-[12px] text-[var(--text-tertiary)] hover:text-[var(--text)] disabled:opacity-50"
+                          onClick={() => teamAction({ action: "remove_member", member_id: m.id })}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -176,9 +208,21 @@ export default function SettingsPage() {
                 <h2 className="text-[12px] uppercase tracking-wider text-[var(--text-tertiary)] mb-2">Pending invites</h2>
                 <ul className="space-y-1.5">
                   {invites.map((i) => (
-                    <li key={i.id} className="flex justify-between text-[13px] px-3 py-2 rounded-lg border border-dashed border-[var(--border)]">
-                      <span>{i.email}</span>
-                      <span className="text-[var(--text-tertiary)]">{i.role}</span>
+                    <li key={i.id} className="flex justify-between gap-2 items-center text-[13px] px-3 py-2 rounded-lg border border-dashed border-[var(--border)]">
+                      <span className="min-w-0 truncate">{i.email}</span>
+                      <span className="flex items-center gap-2 shrink-0">
+                        <span className="text-[var(--text-tertiary)]">{i.role}</span>
+                        {(org?.role === "owner" || org?.role === "admin") && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            className="text-[12px] text-[var(--text-tertiary)] hover:text-[var(--text)] disabled:opacity-50"
+                            onClick={() => teamAction({ action: "revoke_invite", invite_id: i.id })}
+                          >
+                            Revoke
+                          </button>
+                        )}
+                      </span>
                     </li>
                   ))}
                 </ul>

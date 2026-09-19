@@ -63,9 +63,9 @@ Open [http://localhost:3000](http://localhost:3000). Landing → trial/sign-in �
 
 - `POST /api/agents/[agentId]/stream` (+ `/continue`) — NDJSON agent loop
 - `POST /api/chat` — suggest agent (`llm` | `keyword`)
-- `GET/POST /api/approvals` · `GET /api/audit` · `GET /api/metrics`
-- `GET /api/pipeline` · `GET /api/crm` · `GET /api/compliance/calendar`
-- `GET /api/cron?task=…` — Bearer `CRON_SECRET`; runs once per org
+- `GET/POST/DELETE /api/org/members` · `POST /api/org/invites/accept`
+- `GET /api/audit` (JSON) · `GET /api/audit?format=csv`
+- `GET /api/cron?task=…` — Bearer `CRON_SECRET`; automations per org; also `data-retention`, `cert-expiry`, `retention-sweep`
 - Legacy: `/api/hr`, `/api/hr/stream`, `/api/agent/stream`
 
 ## Tests & deploy

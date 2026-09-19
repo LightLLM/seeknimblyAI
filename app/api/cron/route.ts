@@ -1,15 +1,33 @@
 /**
- * GET /api/cron?task=<automation-id|data-retention>
- * Secured with CRON_SECRET. Automations run per org; data-retention is global.
+ * GET /api/cron?task=<automation-id|data-retention|cert-expiry|retention-sweep>
+ * Secured with CRON_SECRET. Automations run per org; sweeps are per-org too.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { runAutomationForAllOrgs } from "@/lib/automations-runner";
 import { runDataRetention } from "@/lib/retention";
+import { runCertExpirySweep } from "@/lib/cert-expiry";
+import { runRetentionSweep } from "@/lib/retention-sweep";
+import { listRows, runWithStoreContext } from "@/lib/store";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
+
+async function runPerOrg<T>(fn: () => Promise<T>): Promise<{ org_id: string; result: T }[]> {
+  const orgs = await listRows("orgs", { limit: 500, skipOrgScope: true });
+  if (orgs.length === 0) {
+    // Demo mode with no orgs — run once unscoped
+    return [{ org_id: "demo", result: await fn() }];
+  }
+  const out: { org_id: string; result: T }[] = [];
+  for (const org of orgs) {
+    const orgId = String(org.id);
+    const result = await runWithStoreContext({ orgId }, fn);
+    out.push({ org_id: orgId, result });
+  }
+  return out;
+}
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -26,6 +44,16 @@ export async function GET(req: NextRequest) {
   if (task === "data-retention") {
     const result = await runDataRetention();
     return NextResponse.json(result);
+  }
+
+  if (task === "cert-expiry") {
+    const results = await runPerOrg(() => runCertExpirySweep());
+    return NextResponse.json({ task, orgs: results.length, results });
+  }
+
+  if (task === "retention-sweep") {
+    const results = await runPerOrg(() => runRetentionSweep());
+    return NextResponse.json({ task, orgs: results.length, results });
   }
 
   const { results } = await runAutomationForAllOrgs(task);

@@ -1,9 +1,15 @@
-/** GET/POST /api/org/members — list members; POST invite { email, role } */
+/** GET/POST/DELETE /api/org/members — list; invite; revoke invite or remove member */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser, withOrgScope } from "@/lib/api-auth";
-import { createInvite, listOrgMembers, listPendingInvites } from "@/lib/org";
+import {
+  createInvite,
+  listOrgMembers,
+  listPendingInvites,
+  revokeInvite,
+  removeOrgMember,
+} from "@/lib/org";
 import { getRow } from "@/lib/store";
 import { logAudit } from "@/lib/audit";
 
@@ -89,5 +95,57 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Invite failed" }, { status: 400 });
+  }
+}
+
+const DELETE_BODY = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("revoke_invite"), invite_id: z.string().min(1) }),
+  z.object({ action: z.literal("remove_member"), member_id: z.string().min(1) }),
+]);
+
+export async function DELETE(req: NextRequest) {
+  const auth = await requireUser(req);
+  if ("error" in auth) return auth.error;
+  if (auth.org.role !== "owner" && auth.org.role !== "admin") {
+    return NextResponse.json({ error: "Only owners/admins can manage the team." }, { status: 403 });
+  }
+
+  let body: z.infer<typeof DELETE_BODY>;
+  try {
+    body = DELETE_BODY.parse(await req.json());
+  } catch (e) {
+    const message = e instanceof z.ZodError ? e.errors.map((x) => x.message).join("; ") : "Invalid body";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+
+  try {
+    if (body.action === "revoke_invite") {
+      await revokeInvite(auth.org.orgId, body.invite_id);
+      await logAudit({
+        agent: "system",
+        action: "org_invite_revoked",
+        actor: auth.email,
+        entity_type: "org_invite",
+        entity_id: body.invite_id,
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    await removeOrgMember({
+      orgId: auth.org.orgId,
+      memberId: body.member_id,
+      actorEmail: auth.email,
+      actorRole: auth.org.role,
+    });
+    await logAudit({
+      agent: "system",
+      action: "org_member_removed",
+      actor: auth.email,
+      entity_type: "org_member",
+      entity_id: body.member_id,
+    });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 400 });
   }
 }

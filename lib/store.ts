@@ -107,6 +107,25 @@ export async function updateRow(table: string, id: string, patch: Row): Promise<
   return rows[idx];
 }
 
+export async function deleteRow(table: string, id: string): Promise<boolean> {
+  const existing = await getRow(table, id);
+  if (!existing) return false;
+  if (isSupabaseConfigured()) {
+    const sb = await supabase();
+    let q = sb.from(table).delete().eq("id", id);
+    const orgId = currentOrgId();
+    if (orgId && ORG_SCOPED_TABLES.has(table)) q = q.eq("org_id", orgId);
+    const { error } = await q;
+    if (error) throw new Error(`[store] delete ${table}/${id} failed: ${error.message}`);
+    return true;
+  }
+  const rows = memTable(table);
+  const idx = rows.findIndex((r) => r.id === id);
+  if (idx === -1) return false;
+  rows.splice(idx, 1);
+  return true;
+}
+
 export type ListOptions = {
   filters?: Record<string, unknown>;
   limit?: number;

@@ -360,6 +360,32 @@ export const onboardingTools: AgentTool[] = [
     },
   }),
   makeTool({
+    name: "update_hire_status",
+    description:
+      "Update a hire lifecycle status: pre_start | week_1 | ramping | retained_90d | exited. Use retained_90d after day 90 still employed; exited if they left.",
+    properties: {
+      hire_id: str("Hire id"),
+      status: str("pre_start | week_1 | ramping | retained_90d | exited"),
+    },
+    required: ["hire_id", "status"],
+    handler: async (args) => {
+      const allowed = new Set(["pre_start", "week_1", "ramping", "retained_90d", "exited"]);
+      const status = String(args.status);
+      if (!allowed.has(status)) {
+        return JSON.stringify({ ok: false, error: `Invalid status. Use one of: ${Array.from(allowed).join(", ")}` });
+      }
+      const row = await updateRow("hires", String(args.hire_id), { status });
+      if (!row) return JSON.stringify({ ok: false, error: "Hire not found" });
+      await logAudit({
+        agent: "onboarding",
+        action: `hire_status_${status}`,
+        entity_type: "hire",
+        entity_id: String(args.hire_id),
+      });
+      return JSON.stringify({ ok: true, hire: row, note: demoNote() });
+    },
+  }),
+  makeTool({
     name: "list_onboarding_status",
     description: "List a hire's checklist with statuses, or all hires when no hire_id given.",
     properties: { hire_id: str("Hire id (optional)") },
