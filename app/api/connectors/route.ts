@@ -23,6 +23,17 @@ export async function GET(req: NextRequest) {
       resend: Boolean(process.env.RESEND_API_KEY),
       cron: Boolean(process.env.CRON_SECRET),
       stackone: Boolean(process.env.STACKONE_API_KEY?.trim()),
+      openrouter: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
+      ollama: Boolean(
+        process.env.OLLAMA_ENABLED === "1" ||
+          Boolean(process.env.OLLAMA_BASE_URL?.trim()) ||
+          Boolean(process.env.OLLAMA_HOST?.trim())
+      ),
+      huggingface: Boolean(
+        process.env.HF_TOKEN?.trim() ||
+          process.env.HUGGINGFACE_API_KEY?.trim() ||
+          process.env.HUGGING_FACE_HUB_TOKEN?.trim()
+      ),
     },
   });
 }

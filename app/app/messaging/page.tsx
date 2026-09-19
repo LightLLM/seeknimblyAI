@@ -52,6 +52,9 @@ const CORE = [
   { key: "resend", label: "Resend", blurb: "Email transmission" },
   { key: "cron", label: "Cron secret", blurb: "Secures scheduled automations" },
   { key: "stackone", label: "StackOne", blurb: "HCM MCP — Workday, ADP, Dayforce (/app/plugins)" },
+  { key: "openrouter", label: "OpenRouter", blurb: "Multi-model router (/app model picker)" },
+  { key: "ollama", label: "Ollama", blurb: "Local models — OLLAMA_ENABLED=1" },
+  { key: "huggingface", label: "Hugging Face", blurb: "HF Inference via HF_TOKEN" },
 ] as const;
 
 const STORE_KEY = "seeknimbly_messaging_config";

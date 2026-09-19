@@ -28,6 +28,18 @@ export function getProviderAvailability(): ProviderAvailability {
     anthropic: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
     google: Boolean(process.env.GOOGLE_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim()),
     xai: Boolean(process.env.XAI_API_KEY?.trim()),
+    openrouter: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
+    // Local Ollama: enable with OLLAMA_ENABLED=1 or set OLLAMA_BASE_URL
+    ollama: Boolean(
+      process.env.OLLAMA_ENABLED === "1" ||
+        process.env.OLLAMA_BASE_URL?.trim() ||
+        process.env.OLLAMA_HOST?.trim()
+    ),
+    huggingface: Boolean(
+      process.env.HF_TOKEN?.trim() ||
+        process.env.HUGGINGFACE_API_KEY?.trim() ||
+        process.env.HUGGING_FACE_HUB_TOKEN?.trim()
+    ),
   };
 }
 
@@ -46,9 +58,48 @@ function xaiKey(): string | null {
   return k || null;
 }
 
+function openRouterKey(): string | null {
+  const k = (process.env.OPENROUTER_API_KEY ?? "").trim();
+  return k || null;
+}
+
+function huggingFaceKey(): string | null {
+  const k = (
+    process.env.HF_TOKEN ??
+    process.env.HUGGINGFACE_API_KEY ??
+    process.env.HUGGING_FACE_HUB_TOKEN ??
+    ""
+  ).trim();
+  return k || null;
+}
+
+function ollamaBaseUrl(): string {
+  const raw = (process.env.OLLAMA_BASE_URL ?? process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434").trim();
+  // Accept host-only or full /v1 URL
+  if (raw.endsWith("/v1")) return raw;
+  return `${raw.replace(/\/$/, "")}/v1`;
+}
+
+function envModelOverride(provider: ModelProvider, fallback: string): string {
+  const map: Partial<Record<ModelProvider, string | undefined>> = {
+    ollama: process.env.OLLAMA_MODEL,
+    openrouter: process.env.OPENROUTER_MODEL,
+    huggingface: process.env.HF_MODEL ?? process.env.HUGGINGFACE_MODEL,
+  };
+  const v = map[provider]?.trim();
+  return v || fallback;
+}
+
 function pickAuto(avail: ProviderAvailability): { provider: ModelProvider; apiModel: string; label: string } {
   if (avail.openai) {
     return { provider: "openai", apiModel: getOpenAIAgentModel("gpt-4o"), label: "Auto (ChatGPT)" };
+  }
+  if (avail.openrouter) {
+    return {
+      provider: "openrouter",
+      apiModel: envModelOverride("openrouter", "openrouter/auto"),
+      label: "Auto (OpenRouter)",
+    };
   }
   if (avail.anthropic) {
     return { provider: "anthropic", apiModel: "claude-sonnet-4-5", label: "Auto (Claude)" };
@@ -59,12 +110,26 @@ function pickAuto(avail: ProviderAvailability): { provider: ModelProvider; apiMo
   if (avail.xai) {
     return { provider: "xai", apiModel: "grok-3", label: "Auto (Grok)" };
   }
+  if (avail.huggingface) {
+    return {
+      provider: "huggingface",
+      apiModel: envModelOverride("huggingface", "meta-llama/Meta-Llama-3.1-8B-Instruct"),
+      label: "Auto (Hugging Face)",
+    };
+  }
+  if (avail.ollama) {
+    return {
+      provider: "ollama",
+      apiModel: envModelOverride("ollama", "llama3.2"),
+      label: "Auto (Ollama)",
+    };
+  }
   throw new Error(
-    "No LLM API key configured. Set OPENAI_API_KEY (or ANTHROPIC_API_KEY / GOOGLE_API_KEY / XAI_API_KEY)."
+    "No LLM configured. Set OPENAI_API_KEY, OPENROUTER_API_KEY, HF_TOKEN, or OLLAMA_ENABLED=1 (local)."
   );
 }
 
-/** OpenAI-compatible client for OpenAI, Gemini, and xAI. */
+/** OpenAI-compatible client for cloud + local OpenAI-protocol providers. */
 function openAiCompatClient(provider: ModelProvider): OpenAI {
   if (provider === "openai") {
     const apiKey = getOpenAIApiKey();
@@ -84,7 +149,54 @@ function openAiCompatClient(provider: ModelProvider): OpenAI {
       baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
     });
   }
+  if (provider === "openrouter") {
+    const apiKey = openRouterKey();
+    if (!apiKey) throw new Error("OPENROUTER_API_KEY is not configured.");
+    return new OpenAI({
+      apiKey,
+      baseURL: "https://openrouter.ai/api/v1",
+      defaultHeaders: {
+        "HTTP-Referer": process.env.NEXTAUTH_URL ?? process.env.SITE_URL ?? "http://localhost:3000",
+        "X-Title": "Seeknimbly AI",
+      },
+    });
+  }
+  if (provider === "ollama") {
+    return new OpenAI({
+      apiKey: process.env.OLLAMA_API_KEY?.trim() || "ollama",
+      baseURL: ollamaBaseUrl(),
+    });
+  }
+  if (provider === "huggingface") {
+    const apiKey = huggingFaceKey();
+    if (!apiKey) throw new Error("HF_TOKEN (or HUGGINGFACE_API_KEY) is not configured.");
+    return new OpenAI({
+      apiKey,
+      baseURL: (process.env.HF_BASE_URL ?? "https://router.huggingface.co/v1").replace(/\/$/, ""),
+    });
+  }
   throw new Error(`openAiCompatClient does not support ${provider}`);
+}
+
+function providerEnvHint(provider: ModelProvider): string {
+  switch (provider) {
+    case "openai":
+      return "OPENAI_API_KEY";
+    case "anthropic":
+      return "ANTHROPIC_API_KEY";
+    case "google":
+      return "GOOGLE_API_KEY";
+    case "xai":
+      return "XAI_API_KEY";
+    case "openrouter":
+      return "OPENROUTER_API_KEY";
+    case "ollama":
+      return "OLLAMA_ENABLED=1 (and run Ollama locally)";
+    case "huggingface":
+      return "HF_TOKEN";
+    default:
+      return "the provider API key";
+  }
 }
 
 type OaiMsg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
@@ -308,15 +420,9 @@ export function resolveChatLlm(modelId: string | null | undefined): ResolvedLlm 
 
   const provider = option.provider as ModelProvider;
   if (!avail[provider]) {
-    const envHint =
-      provider === "openai"
-        ? "OPENAI_API_KEY"
-        : provider === "anthropic"
-          ? "ANTHROPIC_API_KEY"
-          : provider === "google"
-            ? "GOOGLE_API_KEY"
-            : "XAI_API_KEY";
-    throw new Error(`${option.label} is not available (set ${envHint}), or pick Auto / another model.`);
+    throw new Error(
+      `${option.label} is not available (set ${providerEnvHint(provider)}), or pick Auto / another model.`
+    );
   }
 
   if (provider === "anthropic") {
@@ -328,9 +434,10 @@ export function resolveChatLlm(modelId: string | null | undefined): ResolvedLlm 
     };
   }
 
+  const model = envModelOverride(provider, option.apiModel);
   return {
     client: openAiCompatClient(provider),
-    model: option.apiModel,
+    model,
     option,
     provider,
   };

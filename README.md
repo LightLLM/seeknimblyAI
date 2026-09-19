@@ -57,7 +57,7 @@ Open [http://localhost:3000](http://localhost:3000). Landing → trial/sign-in �
 - **Draft, never send** — outbound email/posting/proposal → `outbox_drafts`; email transmits only after human approve + Resend
 - **HITL gates** — mutating tools pause with HMAC-signed continuation tokens
 - **Org isolation** — each user gets an org; store stamps/filters `org_id` on business tables
-- **Model picker** — Auto / ChatGPT / Claude / Gemini / Grok in chat (needs matching API keys)
+- **Model picker** — Auto / ChatGPT / Claude / Gemini / Grok / OpenRouter / Ollama / Hugging Face (needs matching keys or OLLAMA_ENABLED)
 - **Compliance web search** — `web_search` tool (Responses API) required before `draft_change_brief`; official https government URLs enforced
 - **Audit** — every tool/approval logged
 

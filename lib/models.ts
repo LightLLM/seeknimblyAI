@@ -2,7 +2,14 @@
  * Chat model catalog — client-safe ids/labels. Server resolves keys in lib/llm.ts.
  */
 
-export type ModelProvider = "openai" | "anthropic" | "google" | "xai";
+export type ModelProvider =
+  | "openai"
+  | "anthropic"
+  | "google"
+  | "xai"
+  | "openrouter"
+  | "ollama"
+  | "huggingface";
 
 export type ChatModelOption = {
   id: string;
@@ -55,6 +62,48 @@ export const CHAT_MODEL_OPTIONS: ChatModelOption[] = [
     provider: "xai",
     apiModel: "grok-3",
     description: "xAI Grok",
+  },
+  {
+    id: "openrouter:auto",
+    label: "OpenRouter · Auto",
+    provider: "openrouter",
+    apiModel: "openrouter/auto",
+    description: "OpenRouter routes to a capable model",
+  },
+  {
+    id: "openrouter:llama-3.3-70b",
+    label: "OpenRouter · Llama 3.3 70B",
+    provider: "openrouter",
+    apiModel: "meta-llama/llama-3.3-70b-instruct",
+    description: "Via OpenRouter",
+  },
+  {
+    id: "ollama:llama3.2",
+    label: "Ollama · Llama 3.2",
+    provider: "ollama",
+    apiModel: "llama3.2",
+    description: "Local Ollama (OLLAMA_BASE_URL)",
+  },
+  {
+    id: "ollama:qwen2.5",
+    label: "Ollama · Qwen 2.5",
+    provider: "ollama",
+    apiModel: "qwen2.5",
+    description: "Local Ollama",
+  },
+  {
+    id: "huggingface:llama-3.1-8b",
+    label: "Hugging Face · Llama 3.1 8B",
+    provider: "huggingface",
+    apiModel: "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    description: "HF Inference (OpenAI-compatible router)",
+  },
+  {
+    id: "huggingface:qwen2.5-7b",
+    label: "Hugging Face · Qwen 2.5 7B",
+    provider: "huggingface",
+    apiModel: "Qwen/Qwen2.5-7B-Instruct",
+    description: "HF Inference",
   },
 ];
 

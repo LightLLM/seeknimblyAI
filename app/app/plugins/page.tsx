@@ -24,6 +24,14 @@ function loadLocal(): LocalConfig {
   }
 }
 
+type LlmProviderRow = {
+  id: string;
+  label: string;
+  available: boolean;
+  env: string;
+  hint: string;
+};
+
 export default function PluginsPage() {
   const [accountId, setAccountId] = useState("");
   const [enabledVendors, setEnabledVendors] = useState<string[]>([]);
@@ -33,7 +41,8 @@ export default function PluginsPage() {
   const [vendors, setVendors] = useState<StackOneVendor[]>(STACKONE_VENDORS);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string>("stackone");
+  const [selected, setSelected] = useState<string>("llm");
+  const [llmProviders, setLlmProviders] = useState<LlmProviderRow[]>([]);
 
   useEffect(() => {
     const local = loadLocal();
@@ -60,6 +69,11 @@ export default function PluginsPage() {
         }
       )
       .catch((e: Error) => setError(e.message));
+
+    fetch("/api/plugins/llm")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { providers?: LlmProviderRow[] } | null) => setLlmProviders(d?.providers ?? []))
+      .catch(() => setLlmProviders([]));
   }, []);
 
   const refreshMcp = async (id: string) => {
@@ -122,6 +136,27 @@ export default function PluginsPage() {
             <li>
               <button
                 type="button"
+                onClick={() => setSelected("llm")}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-colors ${
+                  selected === "llm" ? "bg-[var(--surface-hover)]" : "hover:bg-[var(--surface-hover)]"
+                }`}
+              >
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[14px] font-medium truncate">LLM providers</span>
+                  <span className="block text-[12px] text-[var(--text-tertiary)] truncate">
+                    OpenRouter · Ollama · Hugging Face
+                  </span>
+                </span>
+                <span
+                  className={`shrink-0 w-2 h-2 rounded-full ${
+                    llmProviders.some((p) => p.available) ? "bg-emerald-500" : "bg-[var(--border-strong)]"
+                  }`}
+                />
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
                 onClick={() => setSelected("stackone")}
                 className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-colors ${
                   selected === "stackone" ? "bg-[var(--surface-hover)]" : "hover:bg-[var(--surface-hover)]"
@@ -167,6 +202,83 @@ export default function PluginsPage() {
 
         <main className="flex-1 min-w-0 px-4 sm:px-6 py-6 max-w-3xl">
           {error && <p className="text-[13px] text-amber-500 mb-4">{error}</p>}
+
+          {selected === "llm" && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-[17px] font-semibold">LLM providers</h2>
+                <p className="mt-1 text-[14px] text-[var(--text-secondary)]">
+                  Connect OpenRouter, local Ollama, or Hugging Face in addition to ChatGPT / Claude / Gemini / Grok.
+                  Pick the model in the chat composer. Keys stay in server env — never paste secrets here.
+                </p>
+              </div>
+              <ul className="space-y-2">
+                {(llmProviders.length
+                  ? llmProviders
+                  : [
+                      {
+                        id: "openrouter",
+                        label: "OpenRouter",
+                        available: false,
+                        env: "OPENROUTER_API_KEY",
+                        hint: "Loading…",
+                      },
+                      {
+                        id: "ollama",
+                        label: "Ollama (local)",
+                        available: false,
+                        env: "OLLAMA_ENABLED=1",
+                        hint: "Loading…",
+                      },
+                      {
+                        id: "huggingface",
+                        label: "Hugging Face",
+                        available: false,
+                        env: "HF_TOKEN",
+                        hint: "Loading…",
+                      },
+                    ]
+                ).map((p) => (
+                  <li
+                    key={p.id}
+                    className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[14px] font-medium">{p.label}</p>
+                        <p className="text-[13px] text-[var(--text-secondary)] mt-0.5">{p.hint}</p>
+                        <p className="text-[12px] text-[var(--text-tertiary)] mt-1.5 font-mono">{p.env}</p>
+                      </div>
+                      <span
+                        className={`shrink-0 text-[12px] font-medium ${
+                          p.available ? "text-emerald-600 dark:text-emerald-400" : "text-[var(--text-tertiary)]"
+                        }`}
+                      >
+                        {p.available ? "Connected" : "Not set"}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="rounded-[var(--radius)] border border-dashed border-[var(--border)] p-4 text-[13px] text-[var(--text-secondary)] space-y-2">
+                <p className="font-medium text-[var(--text)]">Quick setup</p>
+                <p>
+                  <strong>OpenRouter:</strong> add <code className="text-[12px]">OPENROUTER_API_KEY</code> to{" "}
+                  <code className="text-[12px]">.env.local</code> / Vercel, restart, then choose OpenRouter in chat.
+                </p>
+                <p>
+                  <strong>Ollama:</strong> install Ollama, pull a model (<code className="text-[12px]">ollama pull llama3.2</code>
+                  ), set <code className="text-[12px]">OLLAMA_ENABLED=1</code> (optional{" "}
+                  <code className="text-[12px]">OLLAMA_BASE_URL</code>, <code className="text-[12px]">OLLAMA_MODEL</code>).
+                  Local only — does not run on Vercel.
+                </p>
+                <p>
+                  <strong>Hugging Face:</strong> add <code className="text-[12px]">HF_TOKEN</code>; optional{" "}
+                  <code className="text-[12px]">HF_MODEL</code> override.
+                </p>
+              </div>
+            </div>
+          )}
 
           {selected === "stackone" && (
             <div className="space-y-5">
