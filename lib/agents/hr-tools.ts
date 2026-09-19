@@ -505,6 +505,67 @@ const CA_COMPLIANCE_CALENDAR: Array<{ when: string; what: string; who: string }>
 
 export const complianceTools: AgentTool[] = [
   makeTool({
+    name: "web_search",
+    description:
+      "Search the live web for current employment-law / compliance information. ALWAYS call this before draft_change_brief. Returns a summary plus official source URLs — use one of those https URLs as source_url.",
+    properties: {
+      query: str("Search query, e.g. 'Ontario minimum wage October 2026 site:ontario.ca'"),
+    },
+    required: ["query"],
+    handler: async (args, ctx) => {
+      if (!ctx.openai) {
+        return JSON.stringify({
+          ok: false,
+          error: "OpenAI client unavailable for web search.",
+          note: "Cannot verify law changes without live search — do not invent a Change Brief.",
+        });
+      }
+      const query = String(args.query ?? "").trim();
+      if (!query) return JSON.stringify({ ok: false, error: "query required" });
+      try {
+        const model = ctx.model ?? "gpt-4o";
+        const response = await ctx.openai.responses.create({
+          model,
+          tools: [{ type: "web_search_preview" as const }],
+          input: `Search for official government sources only (*.gov, *.gc.ca, ontario.ca, gov.bc.ca, alberta.ca, quebec.ca, canada.ca, cra-arc.gc.ca, labour.gov). Query: ${query}
+
+Return:
+1) A short factual summary (what changed / current rule)
+2) Effective date if stated
+3) A bullet list of official source URLs (https only)
+If you cannot find an official source, say so clearly.`,
+          max_output_tokens: 1024,
+        });
+        const text =
+          (response as { output_text?: string }).output_text?.trim() ||
+          "No search results returned.";
+        const urls = Array.from(text.matchAll(/https?:\/\/[^\s\)\]\"']+/g)).map((m) =>
+          m[0].replace(/[.,;]+$/, "")
+        );
+        const uniqueUrls = Array.from(new Set(urls)).slice(0, 8);
+        await logAudit({
+          agent: "compliance",
+          action: "web_search",
+          detail: `${query} → ${uniqueUrls.length} urls`,
+        });
+        return JSON.stringify({
+          ok: true,
+          query,
+          summary: text,
+          source_urls: uniqueUrls,
+          instruction:
+            uniqueUrls.length > 0
+              ? "Use one of source_urls as source_url when calling draft_change_brief."
+              : "No official URL found — do NOT call draft_change_brief; tell the user you could not verify from an official source.",
+          note: demoNote(),
+        });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "web search failed";
+        return JSON.stringify({ ok: false, error: message });
+      }
+    },
+  }),
+  makeTool({
     name: "log_compliance_event",
     description: "Log a compliance event (law change caught, deadline, audit finding). Compliance events caught is a headline metric.",
     properties: {
@@ -575,7 +636,7 @@ export const complianceTools: AgentTool[] = [
   makeTool({
     name: "draft_change_brief",
     description:
-      "Draft a law-change brief for approval: what changed, effective date, who's affected, required action, draft policy edit, official source + date checked. Routed to the outbox.",
+      "Draft a law-change brief for approval AFTER web_search. Requires an official https source_url from web_search results. Routed to the outbox.",
     properties: {
       title: str("Change title"),
       jurisdiction: str("e.g. ON"),
@@ -583,16 +644,40 @@ export const complianceTools: AgentTool[] = [
       affected: str("Which clients/employees are affected"),
       required_action: str("What must be done"),
       draft_edit: str("Draft of the policy/handbook edit"),
-      source_url: str("Official source URL"),
+      source_url: str("Official https source URL from web_search"),
       body: str("Full change brief text"),
     },
     required: ["title", "body", "source_url"],
     handler: async (args) => {
+      const sourceUrl = String(args.source_url ?? "").trim();
+      if (!/^https:\/\//i.test(sourceUrl)) {
+        return JSON.stringify({
+          ok: false,
+          error: "source_url must be an https:// official URL. Call web_search first and use one of its source_urls.",
+        });
+      }
+      const host = (() => {
+        try {
+          return new URL(sourceUrl).hostname.toLowerCase();
+        } catch {
+          return "";
+        }
+      })();
+      const officialHint =
+        host.endsWith(".gov") ||
+        host.endsWith(".gc.ca") ||
+        /(^|\.)(ontario\.ca|gov\.bc\.ca|alberta\.ca|quebec\.ca|canada\.ca|cra-arc\.gc\.ca)$/i.test(host);
+      if (!officialHint) {
+        return JSON.stringify({
+          ok: false,
+          error: `source_url host "${host}" does not look like an official government domain. Prefer *.gc.ca, ontario.ca, gov.bc.ca, canada.ca, *.gov. Re-run web_search.`,
+        });
+      }
       const res = await createDraft({
         agent: "compliance",
         channel: "document",
         subject: `Change Brief: ${args.title} (${args.jurisdiction ?? "jurisdiction TBD"})`,
-        body: `${args.body}\n\nOfficial source: ${args.source_url} (checked ${new Date().toISOString().slice(0, 10)})\n\nThis is guidance, not legal advice.`,
+        body: `${args.body}\n\nOfficial source: ${sourceUrl} (checked ${new Date().toISOString().slice(0, 10)})\n\nThis is guidance, not legal advice.`,
       });
       await insertRow("compliance_events", {
         kind: "law_change",
@@ -600,7 +685,7 @@ export const complianceTools: AgentTool[] = [
         title: args.title,
         detail: args.required_action ?? null,
         effective_date: args.effective_date ?? null,
-        source_url: args.source_url,
+        source_url: sourceUrl,
         source_checked_at: new Date().toISOString(),
         status: "open",
       });

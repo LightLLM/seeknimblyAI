@@ -104,7 +104,7 @@ export default function AppPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col h-screen supports-[height:100dvh]:h-[100dvh] overflow-hidden">
       <header className="shrink-0 flex items-center justify-between h-12 px-4 border-b border-[var(--border)] bg-[var(--surface)]">
         <span className="text-[13px] font-medium text-[var(--text)]">Seeknimbly HR</span>
         <div className="flex items-center gap-2">
@@ -127,9 +127,9 @@ export default function AppPage() {
           </button>
         </div>
       </header>
-      <main className="flex flex-1 min-h-0">
+      <main className="flex-1 min-h-0 min-w-0">
         {loadingSub ? (
-          <div className="flex items-center justify-center flex-1">
+          <div className="h-full flex items-center justify-center">
             <p className="text-[var(--text-tertiary)] text-[15px]">Loading…</p>
           </div>
         ) : (

@@ -16,6 +16,7 @@ import {
 } from "@/lib/agents/prompts";
 import { recruitingTools, onboardingTools, trainingTools, complianceTools } from "@/lib/agents/hr-tools";
 import { leadGenTools, salesTools, clientOnboardingTools } from "@/lib/agents/lifecycle-tools";
+import { memoryTools } from "@/lib/agents/memory-tools";
 
 const IMPL: Record<string, Pick<AgentDefinition, "getSystemPrompt" | "tools">> = {
   recruiting: { getSystemPrompt: recruitingPrompt, tools: recruitingTools },
@@ -30,7 +31,7 @@ const IMPL: Record<string, Pick<AgentDefinition, "getSystemPrompt" | "tools">> =
 export const AGENTS: AgentDefinition[] = AGENTS_META.map((meta) => {
   const impl = IMPL[meta.id];
   if (!impl) throw new Error(`No implementation registered for agent: ${meta.id}`);
-  return { ...meta, ...impl };
+  return { ...meta, ...impl, tools: [...impl.tools, ...memoryTools(meta.id)] };
 });
 
 export function getAgent(id: string): AgentDefinition | undefined {

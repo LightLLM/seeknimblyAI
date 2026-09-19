@@ -71,9 +71,9 @@ export default function ApprovalsPage() {
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
-      <header className="border-b border-[var(--border)] px-5 py-3 flex items-center gap-4">
+      <header className="border-b border-[var(--border)] px-4 sm:px-5 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
         <Link href="/app" className="text-[13px] text-[var(--text-secondary)] hover:text-[var(--text)]">← Chat</Link>
-        <h1 className="text-[17px] font-semibold flex-1">Approvals outbox</h1>
+        <h1 className="text-[16px] sm:text-[17px] font-semibold flex-1 min-w-[140px]">Approvals outbox</h1>
         <Link href="/app/audit" className="text-[13px] text-[var(--text-secondary)] hover:text-[var(--text)]">Audit trail</Link>
         <select
           value={status}
@@ -81,14 +81,14 @@ export default function ApprovalsPage() {
           className="h-8 pl-3 pr-8 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[13px]"
           aria-label="Filter drafts by status"
         >
-          {["pending", "approved", "rejected", "all"].map((s) => (
+          {["pending", "approved", "sent", "rejected", "all"].map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
       </header>
-      <main className="max-w-4xl mx-auto px-5 py-6">
+      <main className="max-w-4xl mx-auto px-4 sm:px-5 py-6">
         <p className="text-[13px] text-[var(--text-tertiary)] mb-4">
-          Agents draft; you send. Nothing leaves the building until it is approved here — and approved drafts still need you (or an integration) to actually transmit them.
+          Agents draft; you send. Nothing leaves the building until it is approved here. Approved email drafts transmit automatically via Resend when configured (status becomes "sent"); other channels are copy/send.
         </p>
         {error && <p className="text-[13px] text-amber-400/90 mb-4">{error}</p>}
         {loading ? (
@@ -102,7 +102,7 @@ export default function ApprovalsPage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-[11px] uppercase tracking-wider px-2 py-0.5 rounded bg-[var(--surface-hover)] text-[var(--text-secondary)]">{agentLabel(d.agent)}</span>
                   <span className="text-[11px] uppercase tracking-wider px-2 py-0.5 rounded bg-[var(--surface-hover)] text-[var(--text-secondary)]">{d.channel}</span>
-                  <span className={`text-[11px] uppercase tracking-wider px-2 py-0.5 rounded ${d.status === "pending" ? "bg-amber-500/15 text-amber-400" : d.status === "approved" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>{d.status}</span>
+                  <span className={`text-[11px] uppercase tracking-wider px-2 py-0.5 rounded ${d.status === "pending" ? "bg-amber-500/15 text-amber-400" : d.status === "approved" || d.status === "sent" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>{d.status}</span>
                   {d.recipient && <span className="text-[12px] text-[var(--text-tertiary)]">→ {d.recipient}</span>}
                 </div>
                 <p className="mt-2 text-[15px] font-medium">{d.subject ?? "(no subject)"}</p>

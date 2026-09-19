@@ -42,6 +42,8 @@ export type Chat = {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt?: number;
+  /** Pinned chats sort to the top (shift-click in the sidebar). */
+  pinned?: boolean;
 };
 
 export type ChatsState = {
@@ -130,7 +132,22 @@ export function getChatList(): Chat[] {
     if (migrateFromLegacy()) state = loadRaw();
     if (!state) return [];
   }
-  return state.chats.slice().sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt));
+  return state.chats
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) ||
+        (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt)
+    );
+}
+
+export function toggleChatPinned(id: string): void {
+  const state = loadRaw();
+  if (!state) return;
+  const idx = state.chats.findIndex((c) => c.id === id);
+  if (idx === -1) return;
+  state.chats[idx] = { ...state.chats[idx], pinned: !state.chats[idx].pinned };
+  saveRaw(state);
 }
 
 export function getActiveChatId(): string | null {

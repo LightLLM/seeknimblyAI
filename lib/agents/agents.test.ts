@@ -81,10 +81,23 @@ describe("draft-never-send (outbox enforcement)", () => {
     await offer.handler({ hire_name: "Maya", role: "Cook", body: "Offer text" }, {});
     const compliance = getAgent("compliance")!;
     const brief = compliance.tools.find((t) => t.definition.function.name === "draft_change_brief")!;
-    await brief.handler({ title: "ON min wage", body: "Brief", source_url: "https://ontario.ca" }, {});
+    await brief.handler({ title: "ON min wage", body: "Brief", source_url: "https://www.ontario.ca/page/minimum-wage" }, {});
     const drafts = await listRows("outbox_drafts", {});
     expect(drafts.length).toBe(2);
     expect(drafts.every((d) => d.status === "pending")).toBe(true);
+  });
+
+  it("draft_change_brief rejects non-official source URLs", async () => {
+    const compliance = getAgent("compliance")!;
+    const brief = compliance.tools.find((t) => t.definition.function.name === "draft_change_brief")!;
+    const bad = JSON.parse(await brief.handler({ title: "x", body: "y", source_url: "https://example.com/blog" }, {}));
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toMatch(/official/i);
+  });
+
+  it("compliance agent exposes web_search before drafting briefs", () => {
+    const compliance = getAgent("compliance")!;
+    expect(compliance.tools.some((t) => t.definition.function.name === "web_search")).toBe(true);
   });
 });
 

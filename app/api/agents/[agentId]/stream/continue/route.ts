@@ -7,6 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
 import OpenAI from "openai";
 import { z } from "zod";
 import { getOpenAIApiKey, getOpenAIModel } from "@/lib/openai";
@@ -20,6 +21,8 @@ import {
   type ChatMessage,
   type StreamEvent,
 } from "@/lib/agents/runtime";
+import { resolveOrgForEmail } from "@/lib/org";
+import { runWithStoreContext } from "@/lib/store";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -48,6 +51,10 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
   const agent = getAgent(params.agentId);
   if (!agent) return NextResponse.json({ error: `Unknown agent: ${params.agentId}` }, { status: 404 });
 
+  const authSecret = process.env.NEXTAUTH_SECRET;
+  const token = authSecret ? await getToken({ req, secret: authSecret }) : null;
+  if (!token?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   const key = rateLimitKey(ip, `agents:${agent.id}:continue`);
   if (!check(key)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
@@ -62,7 +69,7 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
 
   const decoded = decodeContinuation(body.continuation);
   if (!decoded || decoded.agentId !== agent.id) {
-    return NextResponse.json({ error: "Invalid continuation token." }, { status: 400 });
+    return NextResponse.json({ error: "Invalid or tampered continuation token." }, { status: 400 });
   }
 
   const apiKey = getOpenAIApiKey();
@@ -71,7 +78,16 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
 
   const model = getOpenAIModel("gpt-4o");
   const openai = new OpenAI({ apiKey });
+  const email = String(token.email);
+  const org = await resolveOrgForEmail(email);
   const messages: ChatMessage[] = decoded.messages;
+  const toolCtx = {
+    openai,
+    model,
+    jurisdiction: body.jurisdiction,
+    userEmail: email,
+    orgId: org.orgId,
+  };
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -83,33 +99,58 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
         if (ev.type === "done" || ev.type === "error" || ev.type === "pending_tool_calls") closed = true;
       };
       try {
-        for (const decision of body.decisions) {
-          const tool = toolByName(agent, decision.name);
-          let result: string;
-          if (!decision.approved) {
-            result = JSON.stringify({
-              rejected: true,
-              message: "The user rejected this action. Do not retry it; ask what they want instead.",
-            });
-            await logAudit({ agent: agent.id, action: `approval_rejected:${decision.name}`, actor: "user", status: "rejected" });
-          } else if (!tool) {
-            result = JSON.stringify({ error: `Unknown tool: ${decision.name}` });
-          } else {
-            emit({ type: "step", id: decision.name, label: `Running ${decision.name}…`, status: "active" });
-            try {
-              result = await tool.handler(decision.args, { openai, model, jurisdiction: body.jurisdiction });
-              await logAudit({ agent: agent.id, action: `approval_granted:${decision.name}`, actor: "user", status: "approved" });
-            } catch (e) {
-              const message = e instanceof Error ? e.message : "Tool failed";
-              result = JSON.stringify({ error: message });
-              await logAudit({ agent: agent.id, action: `tool_error:${decision.name}`, status: "error", detail: message });
+        await runWithStoreContext({ orgId: org.orgId }, async () => {
+          // Tool name + args come from the SIGNED continuation, never from the
+          // client: the client only supplies approve/reject per tool-call id.
+          const lastAssistant = [...messages]
+            .reverse()
+            .find((m) => m.role === "assistant" && "tool_calls" in m && m.tool_calls);
+          const signedCalls = new Map<string, { name: string; args: Record<string, unknown> }>();
+          if (lastAssistant && "tool_calls" in lastAssistant && lastAssistant.tool_calls) {
+            for (const tc of lastAssistant.tool_calls) {
+              if (tc.type !== "function") continue;
+              let args: Record<string, unknown> = {};
+              try {
+                args = JSON.parse(tc.function.arguments ?? "{}") as Record<string, unknown>;
+              } catch {
+                args = {};
+              }
+              signedCalls.set(tc.id, { name: tc.function.name, args });
             }
-            emit({ type: "step", id: decision.name, label: decision.name, status: "done" });
           }
-          messages.push({ role: "tool", tool_call_id: decision.id, content: result });
-        }
 
-        await runAgentLoop({ agent, openai, model, messages, ctx: { openai, model, jurisdiction: body.jurisdiction }, emit });
+          for (const decision of body.decisions) {
+            const signed = signedCalls.get(decision.id);
+            const name = signed?.name ?? decision.name;
+            const tool = signed ? toolByName(agent, signed.name) : undefined;
+            let result: string;
+            if (!signed) {
+              result = JSON.stringify({ error: "Unknown tool call id for this continuation." });
+            } else if (!decision.approved) {
+              result = JSON.stringify({
+                rejected: true,
+                message: "The user rejected this action. Do not retry it; ask what they want instead.",
+              });
+              await logAudit({ agent: agent.id, action: `approval_rejected:${name}`, actor: email, status: "rejected" });
+            } else if (!tool) {
+              result = JSON.stringify({ error: `Unknown tool: ${name}` });
+            } else {
+              emit({ type: "step", id: name, label: `Running ${name}…`, status: "active" });
+              try {
+                result = await tool.handler(signed.args, toolCtx);
+                await logAudit({ agent: agent.id, action: `approval_granted:${name}`, actor: email, status: "approved" });
+              } catch (e) {
+                const message = e instanceof Error ? e.message : "Tool failed";
+                result = JSON.stringify({ error: message });
+                await logAudit({ agent: agent.id, action: `tool_error:${name}`, status: "error", detail: message });
+              }
+              emit({ type: "step", id: name, label: name, status: "done" });
+            }
+            messages.push({ role: "tool", tool_call_id: decision.id, content: result });
+          }
+
+          await runAgentLoop({ agent, openai, model, messages, ctx: toolCtx, emit });
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Request failed";
         console.error(`[api/agents/${agent.id}/continue]`, message, err);

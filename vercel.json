@@ -3,7 +3,33 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "functions": {
-    "app/api/hr/stream/route.ts": { "maxDuration": 60 },
-    "app/api/files/route.ts": { "maxDuration": 30 }
-  }
+    "app/api/hr/stream/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/files/route.ts": {
+      "maxDuration": 30
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron?task=law-change-monitor",
+      "schedule": "0 9 * * 1"
+    },
+    {
+      "path": "/api/cron?task=calendar-sweep",
+      "schedule": "0 9 1 * *"
+    },
+    {
+      "path": "/api/cron?task=lead-gen-daily",
+      "schedule": "0 8 * * 1-5"
+    },
+    {
+      "path": "/api/cron?task=onboarding-checkins",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron?task=sales-followups",
+      "schedule": "0 10 * * 1-5"
+    }
+  ]
 }

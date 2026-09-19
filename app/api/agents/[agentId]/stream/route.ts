@@ -4,12 +4,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
 import OpenAI from "openai";
 import { z } from "zod";
 import { getOpenAIApiKey, getOpenAIModel } from "@/lib/openai";
 import { check, record, rateLimitKey } from "@/lib/rateLimit";
 import { getAgent } from "@/lib/agents/registry";
 import { runAgentLoop, type ChatMessage, type StreamEvent } from "@/lib/agents/runtime";
+import { resolveOrgForEmail } from "@/lib/org";
+import { runWithStoreContext } from "@/lib/store";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -39,6 +42,12 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
     return NextResponse.json({ error: `Unknown agent: ${params.agentId}` }, { status: 404 });
   }
 
+  const authSecret = process.env.NEXTAUTH_SECRET;
+  const token = authSecret ? await getToken({ req, secret: authSecret }) : null;
+  if (!token?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const key = rateLimitKey(getClientIp(req), `agents:${agent.id}`);
   if (!check(key)) {
     return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
@@ -60,6 +69,8 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
 
   const model = getOpenAIModel("gpt-4o");
   const openai = new OpenAI({ apiKey });
+  const email = String(token.email);
+  const org = await resolveOrgForEmail(email);
   const messages: ChatMessage[] = [
     { role: "system", content: agent.getSystemPrompt({ jurisdiction: body.jurisdiction }) },
     ...(body.history ?? []).map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
@@ -76,14 +87,22 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
         if (ev.type === "done" || ev.type === "error" || ev.type === "pending_tool_calls") closed = true;
       };
       try {
-        emit({ type: "step", id: "agent", label: `${agent.label} agent thinking…`, status: "active" });
-        await runAgentLoop({
-          agent,
-          openai,
-          model,
-          messages,
-          ctx: { openai, model, jurisdiction: body.jurisdiction },
-          emit,
+        await runWithStoreContext({ orgId: org.orgId }, async () => {
+          emit({ type: "step", id: "agent", label: `${agent.label} agent thinking…`, status: "active" });
+          await runAgentLoop({
+            agent,
+            openai,
+            model,
+            messages,
+            ctx: {
+              openai,
+              model,
+              jurisdiction: body.jurisdiction,
+              userEmail: email,
+              orgId: org.orgId,
+            },
+            emit,
+          });
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Request failed";

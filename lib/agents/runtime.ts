@@ -5,6 +5,7 @@
  * it after the human decision. Every tool execution is audit-logged.
  */
 
+import { createHmac, timingSafeEqual } from "crypto";
 import type OpenAI from "openai";
 import { logAudit } from "@/lib/audit";
 import type { AgentDefinition, ToolContext } from "@/lib/agents/types";
@@ -21,13 +22,40 @@ export type StreamEvent =
 
 export type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
+function signingSecret(): string | null {
+  return process.env.NEXTAUTH_SECRET ?? null;
+}
+
+function hmac(body: string, secret: string): string {
+  return createHmac("sha256", secret).update(body).digest("base64url");
+}
+
+/**
+ * Continuation tokens are HMAC-signed with NEXTAUTH_SECRET so the paused
+ * conversation (including pending tool-call arguments) cannot be tampered
+ * with between the pause and the user's approval.
+ */
 export function encodeContinuation(payload: { agentId: string; messages: unknown[] }): string {
-  return Buffer.from(JSON.stringify(payload), "utf-8").toString("base64");
+  const body = Buffer.from(JSON.stringify(payload), "utf-8").toString("base64url");
+  const secret = signingSecret();
+  const sig = secret ? hmac(body, secret) : "";
+  return `${body}.${sig}`;
 }
 
 export function decodeContinuation(token: string): { agentId: string; messages: ChatMessage[] } | null {
+  const dot = token.lastIndexOf(".");
+  if (dot === -1) return null;
+  const body = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const secret = signingSecret();
+  if (secret) {
+    const expected = hmac(body, secret);
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  }
   try {
-    const parsed = JSON.parse(Buffer.from(token, "base64").toString("utf-8"));
+    const parsed = JSON.parse(Buffer.from(body, "base64url").toString("utf-8"));
     if (typeof parsed?.agentId === "string" && Array.isArray(parsed?.messages)) {
       return parsed as { agentId: string; messages: ChatMessage[] };
     }

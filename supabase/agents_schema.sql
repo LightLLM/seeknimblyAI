@@ -210,3 +210,97 @@ end; $$ language plpgsql;
 drop trigger if exists audit_log_no_update on public.audit_log;
 create trigger audit_log_no_update before update or delete on public.audit_log
   for each row execute function public.prevent_audit_mutation();
+
+-- ===== Loop: Memory (persistent agent learnings — the outcome-data moat) =====
+create table if not exists public.memories (
+  id uuid primary key default gen_random_uuid(),
+  agent text not null,
+  kind text not null default 'learning', -- outcome | preference | objection | learning | compliance_catch
+  subject text,
+  content text not null,
+  created_at timestamptz not null default now()
+);
+
+-- ===== Loop: Automations (cron-driven agent runs) =====
+create table if not exists public.automation_settings (
+  id uuid primary key default gen_random_uuid(),
+  automation_id text not null unique,
+  enabled boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.automation_runs (
+  id uuid primary key default gen_random_uuid(),
+  automation_id text not null,
+  status text not null, -- completed | needs_approval | error
+  summary text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_memories_kind on public.memories (kind);
+create index if not exists idx_automation_runs_id on public.automation_runs (automation_id, created_at desc);
+
+alter table public.memories enable row level security;
+alter table public.automation_settings enable row level security;
+alter table public.automation_runs enable row level security;
+
+-- ===== Server-side conversation persistence =====
+create table if not exists public.conversations (
+  id text primary key,               -- client-generated chat id
+  user_email text not null,
+  title text not null default 'New session',
+  pinned boolean not null default false,
+  messages jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_conversations_user on public.conversations (user_email, updated_at desc);
+alter table public.conversations enable row level security;
+
+-- ===== Multi-tenancy (org scoping) =====
+create table if not exists public.orgs (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.org_members (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid references public.orgs(id),
+  email text not null,
+  role text not null default 'member', -- owner | admin | member
+  created_at timestamptz not null default now(),
+  unique (org_id, email)
+);
+alter table public.orgs enable row level security;
+alter table public.org_members enable row level security;
+
+-- Stamp org_id on every business table (idempotent adds for existing DBs).
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'candidates','jobs','applications','hires','onboarding_tasks',
+    'learning_paths','learning_items','compliance_events','leads','clients',
+    'client_modules','outbox_drafts','memories','audit_log'
+  ]
+  loop
+    execute format('alter table public.%I add column if not exists org_id uuid references public.orgs(id)', t);
+    execute format('create index if not exists idx_%I_org on public.%I (org_id)', t, t);
+  end loop;
+end $$;
+
+-- Service role still bypasses RLS; policies below block anon/authenticated
+-- PostgREST access. App code scopes every query by org_id via lib/store.
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'candidates','jobs','applications','hires','onboarding_tasks',
+    'learning_paths','learning_items','compliance_events','leads','clients',
+    'client_modules','outbox_drafts','memories','audit_log',
+    'conversations','automation_settings','automation_runs','orgs','org_members'
+  ]
+  loop
+    execute format('alter table public.%I enable row level security', t);
+  end loop;
+end $$;

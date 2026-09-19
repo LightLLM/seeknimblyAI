@@ -10,6 +10,8 @@ export type ToolContext = {
   model?: string;
   userEmail?: string;
   jurisdiction?: string;
+  /** Tenant scope — store layer also stamps via AsyncLocalStorage. */
+  orgId?: string;
 };
 
 export type AgentTool = {

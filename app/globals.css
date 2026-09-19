@@ -2,7 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===== Light theme (default) — airy canvas, ink text, cobalt accent ===== */
 :root {
+  --bg: #f4f3ef;
+  --bg-elevated: #faf9f6;
+  --surface: #ffffff;
+  --surface-hover: #f0efeb;
+  --border: rgba(20, 20, 30, 0.08);
+  --border-strong: rgba(20, 20, 30, 0.14);
+  --text: #17181c;
+  --text-secondary: rgba(23, 24, 28, 0.66);
+  --text-tertiary: rgba(23, 24, 28, 0.42);
+  --accent: #1d4ed8;
+  --accent-hover: #1e40af;
+  --wordmark: #2242ff;
+  --user-bubble: #1d4ed8;
+  --assistant-bubble: #ffffff;
+  --error-bg: rgba(220, 38, 38, 0.08);
+  --error-border: rgba(220, 38, 38, 0.25);
+  --shadow-sm: 0 1px 2px rgba(20, 20, 30, 0.06);
+  --shadow-md: 0 6px 24px rgba(20, 20, 30, 0.09);
+  --radius: 12px;
+  --radius-lg: 18px;
+  --radius-full: 9999px;
+}
+
+/* ===== Dark theme ===== */
+html.dark {
   --bg: #000000;
   --bg-elevated: #0a0a0a;
   --surface: #141414;
@@ -14,15 +40,13 @@
   --text-tertiary: rgba(255, 255, 255, 0.45);
   --accent: #0a84ff;
   --accent-hover: #409cff;
+  --wordmark: #5b8cff;
   --user-bubble: #0a84ff;
   --assistant-bubble: #1c1c1e;
   --error-bg: rgba(255, 59, 48, 0.12);
   --error-border: rgba(255, 59, 48, 0.3);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
-  --radius: 12px;
-  --radius-lg: 18px;
-  --radius-full: 9999px;
 }
 
 * {
@@ -34,7 +58,7 @@ html {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
   background-color: var(--bg);
   color: var(--text);
   min-height: 100vh;
@@ -43,8 +67,24 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Soft radial wash behind the hero, like a sun-bleached canvas */
+.canvas-wash {
+  background:
+    radial-gradient(1200px 600px at 50% 35%, color-mix(in srgb, var(--wordmark) 5%, transparent), transparent 70%),
+    var(--bg);
+}
+
+/* Big serif display wordmark */
+.wordmark {
+  font-family: "Playfair Display", Didot, "Bodoni MT", Georgia, "Times New Roman", serif;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  color: var(--wordmark);
+  line-height: 0.95;
+}
+
 ::selection {
-  background: rgba(10, 132, 255, 0.25);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
   color: var(--text);
 }
 
@@ -69,7 +109,11 @@ body {
 }
 
 .select-arrow {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='rgba(255,255,255,0.5)' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='rgba(20,20,30,0.5)' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
+}
+
+html.dark .select-arrow {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='rgba(255,255,255,0.5)' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }

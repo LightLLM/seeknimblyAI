@@ -9,13 +9,17 @@ import {
   setChat,
   setActiveChatId,
   createChat,
+  toggleChatPinned,
   type ChatMessage,
   type AgentStep,
   type Chat,
   type ChatAgentTag,
 } from "@/lib/storage";
 import { Sidebar } from "./Sidebar";
+import { ApprovalsPanel } from "./ApprovalsPanel";
 import { AGENTS_META, agentLabel } from "@/lib/agents/meta";
+import { getDisabledAgents } from "@/lib/agents/prefs";
+import { pullConversations, pushConversation } from "@/lib/chat-sync";
 
 const MAX_MESSAGE_LENGTH = 8000;
 /** Max length per history item content (must match API schema). */
@@ -25,7 +29,7 @@ const ACCEPT_FILE_TYPES = "application/pdf,.txt,.md,.csv,image/jpeg,image/png,im
 const JURISDICTIONS = ["NA", "CA", "US"] as const;
 type Jurisdiction = (typeof JURISDICTIONS)[number];
 
-type ApprovalPending = {
+type PendingRequest = {
   message: string;
   suggestedAgent: ChatAgentTag;
   reason: string;
@@ -40,7 +44,7 @@ function ReasoningSteps({ steps, compact = false }: { steps: AgentStep[]; compac
   return (
     <div className={`rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] ${compact ? "px-3 py-2" : "px-4 py-3"} mb-2`}>
       <p className={`font-medium text-[var(--text-secondary)] ${compact ? "text-[11px] uppercase tracking-wider mb-1.5" : "text-[12px] uppercase tracking-wider mb-2"}`}>
-        Compliance reasoning
+        Agent steps
       </p>
       <ul className="space-y-1.5">
         {steps.map((s) => (
@@ -67,21 +71,27 @@ export function ChatPage() {
   const [activeChatId, setActiveChatIdState] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [jurisdiction, setJurisdiction] = useState<Jurisdiction>("NA");
+  const [agentChoice, setAgentChoice] = useState<"auto" | ChatAgentTag>("auto");
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
   const [streamingText, setStreamingText] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [approvalsRefreshKey, setApprovalsRefreshKey] = useState(0);
   const [attachedFiles, setAttachedFiles] = useState<{ file: File; id: string }[]>([]);
   const [documentText, setDocumentText] = useState("");
   const [documentExpanded, setDocumentExpanded] = useState(false);
-  const [approvalPending, setApprovalPending] = useState<ApprovalPending | null>(null);
+  const [approvalPending, setApprovalPending] = useState<PendingRequest | null>(null);
   const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCalls | null>(null);
+
+  const [disabledAgents, setDisabledAgents] = useState<string[]>([]);
 
   // Desktop: sidebar expanded by default. Mobile: drawer closed by default.
   useEffect(() => {
     if (window.matchMedia("(min-width: 768px)").matches) setSidebarOpen(true);
+    setDisabledAgents(getDisabledAgents());
   }, []);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -104,6 +114,18 @@ export function ChatPage() {
     }
     setChatListState(list);
     setActiveChatIdState(active);
+
+    // Server sync: merge remote conversations (newer wins), then refresh.
+    pullConversations().then((changed) => {
+      if (changed) {
+        setChatListState(getChatList());
+        const current = getActiveChatId();
+        if (current) {
+          const chat = getChat(current);
+          if (chat) setMessages(chat.messages);
+        }
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -123,66 +145,14 @@ export function ChatPage() {
     scrollToBottom();
   }, [messages, scrollToBottom, streamingText]);
 
-  const requestRoute = useCallback(async () => {
-    const text = input.trim();
-    if (!text || loading || approvalPending) return;
-    if (text.length > MAX_MESSAGE_LENGTH) {
-      setError(`Message is too long. Please keep it under ${MAX_MESSAGE_LENGTH} characters.`);
-      return;
-    }
-    setError(null);
-    setUploadError(null);
-    setLoading(true);
-    let fileFilenames: string[] = [];
-    let fileIds: string[] = [];
-    if (attachedFiles.length > 0) {
-      const formData = new FormData();
-      attachedFiles.forEach(({ file }) => formData.append("files", file));
-      try {
-        const uploadRes = await fetch("/api/files", { method: "POST", body: formData });
-        if (!uploadRes.ok) {
-          const data = await uploadRes.json().catch(() => ({}));
-          setUploadError(data?.error ?? "File upload failed.");
-          setLoading(false);
-          return;
-        }
-        const data = (await uploadRes.json()) as { files: { file_id: string; filename: string }[] };
-        fileIds = data.files.map((f) => f.file_id);
-        fileFilenames = data.files.map((f) => f.filename);
-        setAttachedFiles([]);
-      } catch {
-        setUploadError("File upload failed. Please try again.");
-        setLoading(false);
-        return;
-      }
-    }
-    fileIdsForApprovalRef.current = fileIds;
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data?.error ?? "Could not determine agent.");
-        setLoading(false);
-        return;
-      }
-      const { suggestedAgent, reason } = (await res.json()) as { suggestedAgent: ChatAgentTag; reason: string };
-      setApprovalPending({ message: text, suggestedAgent, reason, fileFilenames });
-      setInput("");
-    } catch {
-      setError("Network error. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, [input, loading, approvalPending, attachedFiles]);
+  // Persist the active chat server-side after each turn (debounced).
+  useEffect(() => {
+    if (!activeChatId || loading || messages.length === 0) return;
+    pushConversation(activeChatId);
+  }, [activeChatId, messages, loading]);
 
-  const confirmRoute = useCallback(
-    async (chosenAgent: ChatAgentTag) => {
-      const pending = approvalPending;
-      if (!pending || loading) return;
+  const dispatchToAgent = useCallback(
+    async (pending: PendingRequest, chosenAgent: ChatAgentTag) => {
       setApprovalPending(null);
       setError(null);
       setUploadError(null);
@@ -194,7 +164,7 @@ export function ChatPage() {
         setActiveChatIdState(currentId);
         refreshChatList();
       }
-      const titleFromFirst = pending.message.slice(0, 40).trim() || "New chat";
+      const titleFromFirst = pending.message.slice(0, 40).trim() || "New session";
       const userMessage: ChatMessage = {
         role: "user",
         content: pending.message,
@@ -239,7 +209,7 @@ export function ChatPage() {
         });
         clearTimeout(timeoutId);
 
-      if (!res.ok) {
+        if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           const errMsg = data?.error ?? "Something went wrong. Please try again.";
           const withError = [...nextMessages, { role: "assistant" as const, content: `[Error] ${errMsg}`, agent: agentTag }];
@@ -260,72 +230,72 @@ export function ChatPage() {
           return;
         }
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let steps: AgentStep[] = [];
-      let fullText = "";
-      let gotDone = false;
-      let gotPendingToolCalls = false;
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let steps: AgentStep[] = [];
+        let fullText = "";
+        let gotDone = false;
+        let gotPendingToolCalls = false;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const ev = JSON.parse(line) as {
-              type: string;
-              id?: string;
-              label?: string;
-              status?: "active" | "done";
-              delta?: string;
-              text?: string;
-              error?: string;
-              calls?: PendingToolCall[];
-              continuation?: string;
-            };
-            if (ev.type === "step" && ev.id != null && ev.label != null && ev.status) {
-              steps = steps.filter((s) => s.id !== ev.id);
-              steps = [...steps, { id: ev.id, label: ev.label, status: ev.status }];
-              setAgentSteps([...steps]);
-            } else if (ev.type === "text" && typeof ev.delta === "string") {
-              fullText += ev.delta;
-              setStreamingText(fullText);
-            } else if (ev.type === "done" && typeof ev.text === "string") {
-              gotDone = true;
-              const withAssistant = [...nextMessages, { role: "assistant" as const, content: ev.text, steps: steps.length ? [...steps] : undefined, agent: agentTag }];
-              setMessages(withAssistant);
-              if (currentId) setChat(currentId, { messages: withAssistant, updatedAt: Date.now() });
-              setAgentSteps([]);
-              setStreamingText("");
-            } else if (ev.type === "error" && typeof ev.error === "string") {
-              const withError = [...nextMessages, { role: "assistant" as const, content: `[Error] ${ev.error}`, agent: agentTag }];
-              setMessages(withError);
-              if (currentId) setChat(currentId, { messages: withError, updatedAt: Date.now() });
-              setError(ev.error);
-            } else if (ev.type === "pending_tool_calls" && Array.isArray(ev.calls) && typeof ev.continuation === "string") {
-              gotPendingToolCalls = true;
-              toolContinueContextRef.current = { nextMessages, currentId };
-              setPendingToolCalls({ calls: ev.calls, continuation: ev.continuation, agent: chosenAgent });
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const ev = JSON.parse(line) as {
+                type: string;
+                id?: string;
+                label?: string;
+                status?: "active" | "done";
+                delta?: string;
+                text?: string;
+                error?: string;
+                calls?: PendingToolCall[];
+                continuation?: string;
+              };
+              if (ev.type === "step" && ev.id != null && ev.label != null && ev.status) {
+                steps = steps.filter((s) => s.id !== ev.id);
+                steps = [...steps, { id: ev.id, label: ev.label, status: ev.status }];
+                setAgentSteps([...steps]);
+              } else if (ev.type === "text" && typeof ev.delta === "string") {
+                fullText += ev.delta;
+                setStreamingText(fullText);
+              } else if (ev.type === "done" && typeof ev.text === "string") {
+                gotDone = true;
+                const withAssistant = [...nextMessages, { role: "assistant" as const, content: ev.text, steps: steps.length ? [...steps] : undefined, agent: agentTag }];
+                setMessages(withAssistant);
+                if (currentId) setChat(currentId, { messages: withAssistant, updatedAt: Date.now() });
+                setAgentSteps([]);
+                setStreamingText("");
+              } else if (ev.type === "error" && typeof ev.error === "string") {
+                const withError = [...nextMessages, { role: "assistant" as const, content: `[Error] ${ev.error}`, agent: agentTag }];
+                setMessages(withError);
+                if (currentId) setChat(currentId, { messages: withError, updatedAt: Date.now() });
+                setError(ev.error);
+              } else if (ev.type === "pending_tool_calls" && Array.isArray(ev.calls) && typeof ev.continuation === "string") {
+                gotPendingToolCalls = true;
+                toolContinueContextRef.current = { nextMessages, currentId };
+                setPendingToolCalls({ calls: ev.calls, continuation: ev.continuation, agent: chosenAgent });
+              }
+            } catch {
+              // skip malformed line
             }
-          } catch {
-            // skip malformed line
           }
         }
-      }
 
-      if (gotPendingToolCalls) {
-        refreshChatList();
-        setLoading(false);
-        setAgentSteps([]);
-        setStreamingText("");
-        return;
-      }
+        if (gotPendingToolCalls) {
+          refreshChatList();
+          setLoading(false);
+          setAgentSteps([]);
+          setStreamingText("");
+          return;
+        }
 
-      if (!gotDone && fullText.trim()) {
+        if (!gotDone && fullText.trim()) {
           const withAssistant = [...nextMessages, { role: "assistant" as const, content: fullText.trim(), steps: steps.length ? [...steps] : undefined, agent: agentTag }];
           setMessages(withAssistant);
           if (currentId) setChat(currentId, { messages: withAssistant, updatedAt: Date.now() });
@@ -345,9 +315,84 @@ export function ChatPage() {
         setLoading(false);
         setAgentSteps([]);
         setStreamingText("");
+        setApprovalsRefreshKey((k) => k + 1);
       }
     },
-    [approvalPending, loading, activeChatId, messages, jurisdiction, documentText, refreshChatList]
+    [activeChatId, messages, jurisdiction, documentText, refreshChatList]
+  );
+
+  const requestRoute = useCallback(async () => {
+    const text = input.trim();
+    if (!text || loading || approvalPending) return;
+    if (text.length > MAX_MESSAGE_LENGTH) {
+      setError(`Message is too long. Please keep it under ${MAX_MESSAGE_LENGTH} characters.`);
+      return;
+    }
+    setError(null);
+    setUploadError(null);
+    setLoading(true);
+    let fileFilenames: string[] = [];
+    let fileIds: string[] = [];
+    if (attachedFiles.length > 0) {
+      const formData = new FormData();
+      attachedFiles.forEach(({ file }) => formData.append("files", file));
+      try {
+        const uploadRes = await fetch("/api/files", { method: "POST", body: formData });
+        if (!uploadRes.ok) {
+          const data = await uploadRes.json().catch(() => ({}));
+          setUploadError(data?.error ?? "File upload failed.");
+          setLoading(false);
+          return;
+        }
+        const data = (await uploadRes.json()) as { files: { file_id: string; filename: string }[] };
+        fileIds = data.files.map((f) => f.file_id);
+        fileFilenames = data.files.map((f) => f.filename);
+        setAttachedFiles([]);
+      } catch {
+        setUploadError("File upload failed. Please try again.");
+        setLoading(false);
+        return;
+      }
+    }
+    fileIdsForApprovalRef.current = fileIds;
+
+    // Manual agent choice skips routing and goes straight to that agent.
+    if (agentChoice !== "auto") {
+      setInput("");
+      setLoading(false);
+      await dispatchToAgent({ message: text, suggestedAgent: agentChoice, reason: "Manually selected.", fileFilenames }, agentChoice);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data?.error ?? "Could not determine agent.");
+        setLoading(false);
+        return;
+      }
+      const { suggestedAgent, reason } = (await res.json()) as { suggestedAgent: ChatAgentTag; reason: string };
+      setApprovalPending({ message: text, suggestedAgent, reason, fileFilenames });
+      setInput("");
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [input, loading, approvalPending, attachedFiles, agentChoice, dispatchToAgent]);
+
+  const confirmRoute = useCallback(
+    async (chosenAgent: ChatAgentTag) => {
+      const pending = approvalPending;
+      if (!pending || loading) return;
+      await dispatchToAgent(pending, chosenAgent);
+    },
+    [approvalPending, loading, dispatchToAgent]
   );
 
   const cancelApproval = useCallback(() => setApprovalPending(null), []);
@@ -478,6 +523,7 @@ export function ChatPage() {
         setLoading(false);
         setAgentSteps([]);
         setStreamingText("");
+        setApprovalsRefreshKey((k) => k + 1);
       }
     },
     [pendingToolCalls, refreshChatList, jurisdiction]
@@ -496,7 +542,7 @@ export function ChatPage() {
     }
   };
 
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
     const id = createChat();
     setActiveChatId(id);
     setActiveChatIdState(id);
@@ -509,12 +555,30 @@ export function ChatPage() {
     setPendingToolCalls(null);
     toolContinueContextRef.current = null;
     refreshChatList();
-  };
+  }, [refreshChatList]);
+
+  // Ctrl/Cmd+N — new session (matches the sidebar shortcut chip)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        handleNewChat();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleNewChat]);
 
   const handleSelectChat = (id: string) => {
     setActiveChatId(id);
     setActiveChatIdState(id);
     setError(null);
+  };
+
+  const handleTogglePin = (id: string) => {
+    toggleChatPinned(id);
+    refreshChatList();
+    pushConversation(id, 300);
   };
 
   const handleAttachClick = () => fileInputRef.current?.click();
@@ -525,7 +589,7 @@ export function ChatPage() {
     const next = chosen
       .filter((file) => {
         if (file.size > MAX_FILE_SIZE_BYTES) {
-          setUploadError(`"${file.name}" exceeds 8 MB.`);
+          setUploadError(`"${file.name}" exceeds 4 MB.`);
           return false;
         }
         return true;
@@ -547,92 +611,84 @@ export function ChatPage() {
     reader.readAsText(file);
   };
 
-  const currentChat = activeChatId ? getChat(activeChatId) : null;
-  const currentTitle = currentChat?.title ?? "New chat";
-
   const isErrorBubble = (content: string) => content.startsWith("[Error]");
-  const stripErrorPrefix = (content: string) =>
-    content.replace(/^\[Error\]\s*/, "");
+  const stripErrorPrefix = (content: string) => content.replace(/^\[Error\]\s*/, "");
+  const enabledAgents = AGENTS_META.filter((a) => !disabledAgents.includes(a.id));
+  const isEmpty = messages.length === 0 && !loading;
 
   return (
-    <div className="min-h-screen flex bg-[var(--bg)] text-[var(--text)]">
+    <div className="h-full w-full flex bg-[var(--bg)] text-[var(--text)] overflow-hidden">
       <div
-        className={`fixed inset-0 z-40 bg-black/50 md:hidden ${sidebarOpen ? "block" : "hidden"}`}
+        className={`fixed inset-0 z-40 bg-black/40 md:hidden ${sidebarOpen ? "block" : "hidden"}`}
         aria-hidden
         onClick={() => setSidebarOpen(false)}
       />
       <div
-        className={`${sidebarOpen ? "fixed inset-y-0 left-0 z-50 md:relative md:z-0 shadow-xl md:shadow-none" : "hidden md:block"}`}
+        className={`${sidebarOpen ? "fixed inset-y-0 left-0 z-50 md:relative md:z-0 shadow-xl md:shadow-none" : "hidden md:block"} h-full`}
       >
         <Sidebar
           chats={chatList}
           activeId={activeChatId}
           onNewChat={handleNewChat}
           onSelectChat={handleSelectChat}
+          onTogglePin={handleTogglePin}
           onCloseSidebar={() => setSidebarOpen(false)}
           collapsed={!sidebarOpen}
           onToggleCollapsed={() => setSidebarOpen((v) => !v)}
         />
       </div>
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl supports-[backdrop-filter]:bg-[var(--bg)]/70">
-          <div className="w-full max-w-3xl md:max-w-4xl lg:max-w-5xl xl:max-w-none mx-auto px-4 py-3 flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(true)}
-              className="p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface)]"
-              aria-label="Open chat list"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M3 12h18M3 6h18M3 18h18" />
-              </svg>
-            </button>
-            <h1 className="text-[17px] font-semibold tracking-tight text-[var(--text)] truncate flex-1">
-              {currentTitle}
-            </h1>
-            <select
-              aria-label="Jurisdiction (NA, CA, US)"
-              value={jurisdiction}
-              onChange={(e) => setJurisdiction(e.target.value as Jurisdiction)}
-              className="select-arrow h-8 pl-3 pr-8 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] text-[13px] font-medium appearance-none cursor-pointer hover:bg-[var(--surface-hover)]"
-            >
-              {JURISDICTIONS.map((j) => (
-                <option key={j} value={j}>
-                  {j}
-                </option>
-              ))}
-            </select>
-          </div>
-        </header>
+
+      <div className="flex-1 flex flex-col min-w-0 canvas-wash relative">
+        {/* Mobile: open sidebar */}
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(true)}
+          className="md:hidden absolute top-3 left-3 z-30 p-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)]"
+          aria-label="Open sessions"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 12h18M3 6h18M3 18h18" />
+          </svg>
+        </button>
+        {/* Toggle right panel */}
+        <button
+          type="button"
+          onClick={() => setRightPanelOpen((v) => !v)}
+          className="hidden lg:block absolute top-3 right-3 z-30 p-2 rounded-lg text-[var(--text-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] transition-colors"
+          aria-label={rightPanelOpen ? "Hide approvals panel" : "Show approvals panel"}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <path d="M15 4v16" />
+          </svg>
+        </button>
 
         <main className="flex-1 overflow-y-auto">
-          <div className="w-full max-w-3xl md:max-w-4xl lg:max-w-5xl xl:max-w-none mx-auto px-5 py-8 min-h-full">
-            {messages.length === 0 && !loading && (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <p className="text-[var(--text-secondary)] text-[15px] leading-relaxed max-w-sm">
-                  Ask anything — recruiting, onboarding, training, compliance, or growing Seeknimbly itself. We’ll suggest the right agent; you approve before it acts.
+          <div className="w-full max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto px-3 sm:px-5 pt-14 md:pt-8 pb-6 min-h-full flex flex-col">
+            {isEmpty && (
+              <div className="flex-1 flex flex-col items-center justify-center text-center py-10">
+                <h1 className="wordmark text-[clamp(34px,9vw,76px)] 2xl:text-[92px] select-none px-2">
+                  SEEKNIMBLY AI
+                </h1>
+                <p className="mt-4 text-[var(--text-secondary)] text-[14px] leading-relaxed max-w-md">
+                  Recruit, onboard, train, and stay compliant. Tell me the goal and your agents handle the mechanical parts — you approve before anything leaves the building.
                 </p>
-                <p className="mt-2 text-[var(--text-tertiary)] text-[13px]">
-                  Jurisdiction: {jurisdiction}
-                </p>
-                <p className="mt-6 text-[12px] font-medium uppercase tracking-wider text-[var(--text-tertiary)] mb-3">
-                  Try these prompts
-                </p>
-                <div className="flex flex-wrap justify-center gap-3 max-w-2xl">
-                  {AGENTS_META.map(({ label, sample: prompt }) => (
+                <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full max-w-xl xl:max-w-2xl">
+                  {enabledAgents.slice(0, 4).map(({ id, label, sample }) => (
                     <button
-                      key={label}
+                      key={id}
                       type="button"
-                      onClick={() => setInput(prompt)}
-                      className="px-4 py-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[13px] text-left hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] transition-colors w-full sm:w-[280px]"
+                      onClick={() => setInput(sample)}
+                      className="px-4 py-3 rounded-xl border border-[var(--border)] bg-[var(--surface)]/70 backdrop-blur text-[12.5px] text-left hover:bg-[var(--surface)] hover:border-[var(--border-strong)] transition-colors shadow-[var(--shadow-sm)]"
                     >
                       <span className="font-semibold text-[var(--accent)]">{label}</span>
-                      <p className="mt-1 text-[var(--text-secondary)] leading-snug">{prompt}</p>
+                      <p className="mt-0.5 text-[var(--text-secondary)] leading-snug line-clamp-2">{sample}</p>
                     </button>
                   ))}
                 </div>
               </div>
             )}
+
             <ul className="space-y-5">
               {messages.map((msg, i) => (
                 <li
@@ -645,7 +701,7 @@ export function ChatPage() {
                     </div>
                   )}
                   <div
-                    className={`max-w-[85%] rounded-[var(--radius-lg)] px-4 py-3 shadow-[var(--shadow-sm)] ${
+                    className={`max-w-[92%] sm:max-w-[85%] rounded-[var(--radius-lg)] px-4 py-3 shadow-[var(--shadow-sm)] ${
                       msg.role === "user"
                         ? "bg-[var(--user-bubble)] text-white"
                         : isErrorBubble(msg.content)
@@ -702,11 +758,13 @@ export function ChatPage() {
           </div>
         </main>
 
-        <footer className="sticky bottom-0 border-t border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl supports-[backdrop-filter]:bg-[var(--bg)]/70">
-          <div className="w-full max-w-3xl md:max-w-4xl lg:max-w-5xl xl:max-w-none mx-auto px-5 py-4">
+        <footer className="shrink-0 px-3 sm:px-5 pb-[max(0.9rem,env(safe-area-inset-bottom))]">
+          <div className="w-full max-w-2xl xl:max-w-3xl mx-auto">
             {pendingToolCalls ? (
-              <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4 mb-4">
-                <p className="text-[13px] text-[var(--text-secondary)] mb-2">Agent wants to run (approve before we execute)</p>
+              <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4 mb-3 shadow-[var(--shadow-md)]">
+                <p className="text-[13px] text-[var(--text-secondary)] mb-2">
+                  The {agentLabel(pendingToolCalls.agent)} agent wants to run (approve before it executes)
+                </p>
                 <ul className="list-disc list-inside text-[13px] text-[var(--text)] mb-3 space-y-1">
                   {pendingToolCalls.calls.map((c) => {
                     const target =
@@ -740,12 +798,14 @@ export function ChatPage() {
               </div>
             ) : null}
             {approvalPending ? (
-              <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4 mb-4">
+              <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4 mb-3 shadow-[var(--shadow-md)]">
                 <p className="text-[13px] text-[var(--text-secondary)] mb-1">Route to agent</p>
                 <p className="text-[15px] text-[var(--text)] mb-2 line-clamp-2">&quot;{approvalPending.message}&quot;</p>
                 <p className="text-[12px] text-[var(--text-tertiary)] mb-3">{approvalPending.reason}</p>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[12px] text-[var(--text-secondary)] mr-1">Suggested: <strong className="text-[var(--text)]">{agentLabel(approvalPending.suggestedAgent)}</strong></span>
+                  <span className="text-[12px] text-[var(--text-secondary)] mr-1">
+                    Suggested: <strong className="text-[var(--text)]">{agentLabel(approvalPending.suggestedAgent)}</strong>
+                  </span>
                   <button
                     type="button"
                     onClick={() => confirmRoute(approvalPending.suggestedAgent)}
@@ -753,7 +813,7 @@ export function ChatPage() {
                   >
                     Approve
                   </button>
-                  {AGENTS_META.map((agent) => (
+                  {enabledAgents.map((agent) => (
                     <button
                       key={agent.id}
                       type="button"
@@ -769,6 +829,7 @@ export function ChatPage() {
                 </div>
               </div>
             ) : null}
+
             <input
               ref={fileInputRef}
               type="file"
@@ -786,39 +847,28 @@ export function ChatPage() {
               onChange={handleDocumentFileChange}
               aria-label="Attach .txt as document for compliance check"
             />
-            <div className="mb-2">
-              <button
-                type="button"
-                onClick={() => setDocumentExpanded((v) => !v)}
-                className="text-[13px] font-medium text-[var(--text-secondary)] hover:text-[var(--text)]"
-              >
-                {documentExpanded ? "− Document" : "+ Document"}
-              </button>
-              {documentExpanded && (
-                <div className="mt-2 space-y-1">
-                  <textarea
-                    value={documentText}
-                    onChange={(e) => setDocumentText(e.target.value)}
-                    placeholder="Paste policy or handbook text for compliance check (or attach .txt below)"
-                    rows={4}
-                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[13px] text-[var(--text)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] resize-y max-h-[200px]"
-                    disabled={loading}
-                  />
-                  <p className="text-[11px] text-[var(--text-tertiary)]">MVP: Only plain text. Paste or use a .txt file.</p>
-                  <button
-                    type="button"
-                    onClick={() => documentFileInputRef.current?.click()}
-                    disabled={loading}
-                    className="text-[12px] text-[var(--accent)] hover:underline"
-                  >
-                    Attach .txt
-                  </button>
-                </div>
-              )}
-            </div>
-            {uploadError && (
-              <p className="text-[13px] text-amber-400/90 mb-2">{uploadError}</p>
+
+            {documentExpanded && (
+              <div className="mb-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[var(--shadow-sm)] space-y-1">
+                <textarea
+                  value={documentText}
+                  onChange={(e) => setDocumentText(e.target.value)}
+                  placeholder="Paste policy or handbook text for a compliance check (or attach .txt)"
+                  rows={4}
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 text-[13px] text-[var(--text)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] resize-y max-h-[200px]"
+                  disabled={loading}
+                />
+                <button
+                  type="button"
+                  onClick={() => documentFileInputRef.current?.click()}
+                  disabled={loading}
+                  className="text-[12px] text-[var(--accent)] hover:underline"
+                >
+                  Attach .txt
+                </button>
+              </div>
             )}
+            {uploadError && <p className="text-[13px] text-amber-500 mb-2">{uploadError}</p>}
             {attachedFiles.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2">
                 {attachedFiles.map(({ file, id }) => (
@@ -842,48 +892,99 @@ export function ChatPage() {
               </div>
             )}
             {input.length > MAX_MESSAGE_LENGTH && (
-              <p className="text-[13px] text-amber-400/90 mb-3">
+              <p className="text-[13px] text-amber-500 mb-2">
                 Message is too long ({input.length}/{MAX_MESSAGE_LENGTH} characters).
               </p>
             )}
-            <div className="flex gap-3 items-end">
-              <button
-                type="button"
-                onClick={handleAttachClick}
-                disabled={loading}
-                className="shrink-0 p-2.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:opacity-50"
-                aria-label="Attach file"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
-                </svg>
-              </button>
+
+            {/* Floating input: textarea row + controls row (responsive at all widths) */}
+            <div className="rounded-[22px] sm:rounded-[26px] border border-[var(--border-strong)] bg-[var(--surface)] shadow-[var(--shadow-md)] px-3 pt-2 pb-2">
               <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask any agent — Recruiting, Onboarding, Training, Compliance, Lead Gen, Sales, Client Onboarding…"
-                rows={2}
+                placeholder="Give Seeknimbly a task…"
+                rows={1}
                 maxLength={MAX_MESSAGE_LENGTH + 100}
-                className="flex-1 min-h-[44px] max-h-[120px] resize-none rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[15px] text-[var(--text)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-shadow disabled:opacity-60"
+                className="w-full min-h-[40px] max-h-[140px] py-2 resize-none bg-transparent text-[15px] text-[var(--text)] placeholder:text-[var(--text-tertiary)] focus:outline-none disabled:opacity-60"
                 disabled={loading || !!approvalPending || !!pendingToolCalls}
               />
-              <button
-                type="button"
-                onClick={requestRoute}
-                disabled={loading || !!approvalPending || !!pendingToolCalls || !input.trim() || input.length > MAX_MESSAGE_LENGTH}
-                className="shrink-0 h-11 px-5 rounded-[var(--radius-lg)] bg-[var(--accent)] text-white text-[15px] font-medium hover:bg-[var(--accent-hover)] active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2 focus:ring-offset-[var(--bg)]"
-              >
-                Send
-              </button>
+              <div className="flex items-center gap-1 sm:gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={handleAttachClick}
+                  disabled={loading}
+                  className="shrink-0 p-2 rounded-full text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:opacity-50 transition-colors"
+                  aria-label="Attach file"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDocumentExpanded((v) => !v)}
+                  className={`shrink-0 p-2 rounded-full transition-colors ${documentExpanded || documentText.trim() ? "text-[var(--accent)] bg-[var(--accent)]/10" : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"}`}
+                  aria-label="Toggle compliance document panel"
+                  title="Paste a policy/handbook for compliance checks"
+                >
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                    <path d="M14 2v6h6" />
+                  </svg>
+                </button>
+                <div className="flex-1 min-w-0" />
+                <select
+                  aria-label="Agent"
+                  value={agentChoice}
+                  onChange={(e) => setAgentChoice(e.target.value as "auto" | ChatAgentTag)}
+                  className="select-arrow shrink min-w-0 max-w-[42vw] sm:max-w-none h-8 pl-2 sm:pl-2.5 pr-6 sm:pr-7 rounded-full bg-transparent text-[var(--text-secondary)] text-[12px] font-medium appearance-none cursor-pointer hover:text-[var(--text)] truncate"
+                >
+                  <option value="auto">Auto</option>
+                  {AGENTS_META.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Jurisdiction (NA, CA, US)"
+                  value={jurisdiction}
+                  onChange={(e) => setJurisdiction(e.target.value as Jurisdiction)}
+                  className="select-arrow shrink-0 h-8 pl-2 sm:pl-2.5 pr-6 sm:pr-7 rounded-full bg-transparent text-[var(--text-secondary)] text-[12px] font-medium appearance-none cursor-pointer hover:text-[var(--text)]"
+                >
+                  {JURISDICTIONS.map((j) => (
+                    <option key={j} value={j}>
+                      {j}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={requestRoute}
+                  disabled={loading || !!approvalPending || !!pendingToolCalls || !input.trim() || input.length > MAX_MESSAGE_LENGTH}
+                  className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] active:scale-[0.96] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label="Send"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 19V5M5 12l7-7 7 7" />
+                  </svg>
+                </button>
+              </div>
             </div>
-            <p className="mt-2 text-[11px] text-[var(--text-tertiary)]">
-              Enter to send · Shift+Enter for new line · Attach PDF, text, images, or CSV (max 4 MB)
+            <p className="mt-2 text-center text-[11px] text-[var(--text-tertiary)]">
+              <span className="hidden sm:inline">Enter to send · Shift+Enter for new line · </span>Agents draft, you approve
             </p>
           </div>
         </footer>
       </div>
+
+      {rightPanelOpen && (
+        <div className="hidden lg:block w-[300px] xl:w-[340px] 2xl:w-[400px] shrink-0 h-full border-l border-[var(--border)] bg-[var(--bg-elevated)]">
+          <ApprovalsPanel refreshKey={approvalsRefreshKey} />
+        </div>
+      )}
     </div>
   );
 }
