@@ -41,12 +41,18 @@ export async function POST(req: NextRequest) {
     const trialEnd = sub.trial_end ? new Date(sub.trial_end * 1000) : null;
     const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000) : null;
 
+    const plan =
+      (session.metadata?.plan as string) ||
+      (sub.metadata?.plan as string) ||
+      null;
+
     await supabase.from("subscriptions").upsert(
       {
         email: email.toLowerCase(),
         stripe_customer_id: customerId,
         stripe_subscription_id: subscriptionId,
         status: sub.status,
+        plan,
         trial_end: trialEnd?.toISOString() ?? null,
         current_period_end: periodEnd?.toISOString() ?? null,
         updated_at: new Date().toISOString(),
@@ -72,10 +78,13 @@ export async function POST(req: NextRequest) {
     const trialEnd = sub.trial_end ? new Date(sub.trial_end * 1000) : null;
     const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000) : null;
 
+    const plan = (sub.metadata?.plan as string) || null;
+
     await supabase
       .from("subscriptions")
       .update({
         status: sub.status,
+        plan,
         trial_end: trialEnd?.toISOString() ?? null,
         current_period_end: periodEnd?.toISOString() ?? null,
         updated_at: new Date().toISOString(),

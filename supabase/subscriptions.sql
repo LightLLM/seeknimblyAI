@@ -15,3 +15,5 @@ create table if not exists public.subscriptions (
 create index if not exists idx_subscriptions_email on public.subscriptions (email);
 create index if not exists idx_subscriptions_stripe_customer on public.subscriptions (stripe_customer_id);
 create index if not exists idx_subscriptions_stripe_subscription on public.subscriptions (stripe_subscription_id);
+
+alter table public.subscriptions add column if not exists plan text; -- monthly | annual

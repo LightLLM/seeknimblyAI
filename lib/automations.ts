@@ -66,6 +66,16 @@ export const AUTOMATIONS: Automation[] = [
     prompt:
       "Review list_leads for stages replied, call_booked, proposal, negotiating. For replied leads draft_reply proposing 2-3 time slots. For call_booked leads produce call_prep_onepager. Recall relevant objection memories first. Summarize drafts created for approval.",
   },
+  {
+    id: "quarterly-audit",
+    label: "Quarterly compliance audit",
+    description: "Run the 12-point SMB audit checklist per live client; log gaps.",
+    cron: "0 9 1 1,4,7,10 *",
+    cadence: "1st of quarter 9:00",
+    agent: "compliance",
+    prompt:
+      "Quarterly audit: use list_clients (or recall live clients) and run_audit_checklist for each. Score pass/gap/unknown, log gaps with log_compliance_event (kind=audit_finding), and summarize top gaps across the book. This is guidance, not legal advice.",
+  },
 ];
 
 export function getAutomation(id: string): Automation | undefined {

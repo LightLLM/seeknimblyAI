@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("subscriptions")
-    .select("status, trial_end, current_period_end, stripe_customer_id")
+    .select("status, trial_end, current_period_end, stripe_customer_id, plan")
     .eq("email", userEmail)
     .single();
 
@@ -54,6 +54,7 @@ export async function GET(req: NextRequest) {
       trial_end: data.trial_end,
       current_period_end: data.current_period_end,
       has_customer: !!data.stripe_customer_id,
+      plan: data.plan ?? null,
     },
     canAccess,
   });

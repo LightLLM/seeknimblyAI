@@ -287,6 +287,23 @@ alter table public.rate_limits enable row level security;
 alter table public.clients add column if not exists channel_partner_lead_id uuid;
 create index if not exists idx_clients_partner on public.clients (channel_partner_lead_id);
 
+-- Org invites (team multiplayer)
+create table if not exists public.org_invites (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid references public.orgs(id),
+  email text not null,
+  role text not null default 'member',
+  token text not null unique,
+  invited_by text not null,
+  status text not null default 'pending', -- pending | accepted | revoked
+  expires_at timestamptz,
+  accepted_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_org_invites_token on public.org_invites (token);
+create index if not exists idx_org_invites_org on public.org_invites (org_id, status);
+alter table public.org_invites enable row level security;
+
 -- Stamp org_id on every business table (idempotent adds for existing DBs).
 do $$
 declare t text;

@@ -44,6 +44,11 @@ Open [http://localhost:3000](http://localhost:3000). Landing â†’ trial/sign-in â
 | `/app/capabilities` | Toggle agents / inspect tools |
 | `/app/messaging` | Connector status + channel setup |
 | `/app/artifacts` | All drafts by channel |
+| `/app/onboarding` | Hire checklists + task status (F5) |
+| `/app/training` | Learning paths + item progress |
+| `/app/settings` | Team invites, legal/CASL checklist, billing |
+| `/app/checklist` | Personal onboarding checklist (token link) |
+| `/auth/invite` | Accept org invite |
 | `/demo` | Public Day-1 Compliance Snapshot (no signup) |
 
 ## Agents & safety

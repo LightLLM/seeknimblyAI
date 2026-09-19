@@ -1,24 +1,25 @@
 # SeeknimblyAI — Improvement Recommendations
 
-**July 2026 · Based on:** the repo, the live product direction, your data room (especially the a16z-style investor critique), and the hermes agent design.
+All coded roadmap items from the data-room critique are shipped.
 
-## Priority 1–3 — done
+## Done
 
-Loop engineering, org tenancy, dashboards, web search, metrics, streaming, intake forms, eval harness, error reporting, durable rate limits, model split, audit PII redaction.
+1–18 product/engineering items (loop, tenancy, dashboards, web search, metrics, streaming, intake, eval, error report, rate limits, model split, PII audit, annual Stripe, Day-1 demo, partners).
 
-## Priority 4 — business alignment
+**Remaining app surfaces (this pass):**
+- Team invites + Settings (`/app/settings`)
+- Legal / CASL / E&O checklist + engagement-letter skeleton (#19 in-product)
+- Onboarding hire/task dashboard + personal checklist route
+- Training / L&D paths dashboard
+- Quarterly compliance audit automation + cron
+- Stripe `plan` on subscriptions + portal return to Settings
 
-15. **~~Headline metrics.~~** Done.
-16. **~~Annual contracts in Stripe.~~** Done — checkout `{ plan: "monthly" | "annual" }` + `STRIPE_PRICE_ID_ANNUAL`; trial gate shows both when configured.
-17. **~~Day-1 Compliance Snapshot demo.~~** Done — `/demo`.
-18. **~~Channel-partner surface.~~** Done — `/app/partners` + link API; clients carry `channel_partner_lead_id`.
-19. **Legal architecture before scale** — counsel / CASL / E&O (process, not code). Keep human-approval non-negotiable.
+## Still human / process (not code)
 
-## Also shipped
+- Counsel completes engagement letter and CASL review
+- Bind E&O policy
+- Configure Stripe Customer Portal products for monthly↔annual switching in the Stripe Dashboard
 
-- **Data retention cron** — `?task=data-retention` (Sundays 03:00): clear expired rate keys, trim chats >180d, soft-purge memories >365d. Audit log remains append-only.
-- **GitHub Actions CI** — `npm test` + `test:eval` + `build` on push/PR.
+## Ops reminder
 
-## Suggested sequence
-
-Next (optional): wire Stripe Customer Portal plan switching, invite flow for org members, live model eval in CI (needs `OPENAI_API_KEY` secret), engagement letter / CASL review (#19).
+Re-run `supabase/agents_schema.sql` and `supabase/subscriptions.sql` after pull (org_invites, plan column, channel_partner_lead_id).
