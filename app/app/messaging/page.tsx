@@ -51,6 +51,7 @@ const CORE = [
   { key: "stripe", label: "Stripe", blurb: "Billing and trials" },
   { key: "resend", label: "Resend", blurb: "Email transmission" },
   { key: "cron", label: "Cron secret", blurb: "Secures scheduled automations" },
+  { key: "stackone", label: "StackOne", blurb: "HCM MCP — Workday, ADP, Dayforce (/app/plugins)" },
 ] as const;
 
 const STORE_KEY = "seeknimbly_messaging_config";

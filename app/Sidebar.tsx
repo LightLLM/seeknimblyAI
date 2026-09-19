@@ -91,6 +91,7 @@ const NAV_ITEMS: { href: string; label: string; icon: string }[] = [
   { href: "/app/automations", label: "Automations", icon: "M22 12h-4l-3 9L9 3l-3 9H2" },
   { href: "/app/messaging", label: "Messaging", icon: "M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" },
   { href: "/app/artifacts", label: "Artifacts", icon: "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6" },
+  { href: "/app/plugins", label: "Plugins", icon: "M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" },
   { href: "/app/memory", label: "Memory", icon: "M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5v15z" },
   { href: "/app/approvals", label: "Approvals", icon: "M22 11.08V12a10 10 0 11-5.93-9.14M22 4L12 14.01l-3-3" },
   { href: "/app/audit", label: "Audit trail", icon: "M14 2v6h6M16 13H8M16 17H8M10 9H8" },

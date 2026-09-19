@@ -20,6 +20,11 @@ import { ApprovalsPanel } from "./ApprovalsPanel";
 import { AGENTS_META, agentLabel } from "@/lib/agents/meta";
 import { getDisabledAgents } from "@/lib/agents/prefs";
 import { pullConversations, pushConversation } from "@/lib/chat-sync";
+import {
+  CHAT_MODEL_OPTIONS,
+  loadChatModelPreference,
+  saveChatModelPreference,
+} from "@/lib/models";
 
 const MAX_MESSAGE_LENGTH = 8000;
 /** Max length per history item content (must match API schema). */
@@ -72,6 +77,7 @@ export function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [jurisdiction, setJurisdiction] = useState<Jurisdiction>("NA");
   const [agentChoice, setAgentChoice] = useState<"auto" | ChatAgentTag>("auto");
+  const [modelChoice, setModelChoice] = useState<string>("auto");
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +98,7 @@ export function ChatPage() {
   useEffect(() => {
     if (window.matchMedia("(min-width: 768px)").matches) setSidebarOpen(true);
     setDisabledAgents(getDisabledAgents());
+    setModelChoice(loadChatModelPreference());
   }, []);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -197,10 +204,11 @@ export function ChatPage() {
               message: pending.message,
               jurisdiction,
               history,
+              modelId: modelChoice,
               ...(documentText.trim() && { document_text: documentText.trim().slice(0, 12000) }),
               ...(fileIds.length > 0 && { file_ids: fileIds, file_filenames: pending.fileFilenames }),
             }
-          : { message: pending.message, history, jurisdiction };
+          : { message: pending.message, history, jurisdiction, modelId: modelChoice };
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -318,7 +326,7 @@ export function ChatPage() {
         setApprovalsRefreshKey((k) => k + 1);
       }
     },
-    [activeChatId, messages, jurisdiction, documentText, refreshChatList]
+    [activeChatId, messages, jurisdiction, documentText, modelChoice, refreshChatList]
   );
 
   const requestRoute = useCallback(async () => {
@@ -419,7 +427,7 @@ export function ChatPage() {
         const res = await fetch(`/api/agents/${pending.agent}/stream/continue`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ continuation: pending.continuation, decisions, jurisdiction }),
+          body: JSON.stringify({ continuation: pending.continuation, decisions, jurisdiction, modelId: modelChoice }),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -526,7 +534,7 @@ export function ChatPage() {
         setApprovalsRefreshKey((k) => k + 1);
       }
     },
-    [pendingToolCalls, refreshChatList, jurisdiction]
+    [pendingToolCalls, refreshChatList, jurisdiction, modelChoice]
   );
 
   const cancelToolCalls = useCallback(() => {
@@ -961,6 +969,22 @@ export function ChatPage() {
                   </svg>
                 </button>
                 <div className="flex-1 min-w-0" />
+                <select
+                  aria-label="Model"
+                  value={modelChoice}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setModelChoice(v);
+                    saveChatModelPreference(v);
+                  }}
+                  className="select-arrow shrink min-w-0 max-w-[36vw] sm:max-w-none h-8 pl-2 sm:pl-2.5 pr-6 sm:pr-7 rounded-full bg-transparent text-[var(--text-secondary)] text-[12px] font-medium appearance-none cursor-pointer hover:text-[var(--text)] truncate"
+                >
+                  {CHAT_MODEL_OPTIONS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
                 <select
                   aria-label="Agent"
                   value={agentChoice}

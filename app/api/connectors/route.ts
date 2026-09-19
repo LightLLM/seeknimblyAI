@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
       stripe: Boolean(process.env.STRIPE_SECRET_KEY),
       resend: Boolean(process.env.RESEND_API_KEY),
       cron: Boolean(process.env.CRON_SECRET),
+      stackone: Boolean(process.env.STACKONE_API_KEY?.trim()),
     },
   });
 }

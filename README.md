@@ -44,6 +44,7 @@ Open [http://localhost:3000](http://localhost:3000). Landing → trial/sign-in �
 | `/app/capabilities` | Toggle agents / inspect tools |
 | `/app/messaging` | Connector status + channel setup |
 | `/app/artifacts` | All drafts by channel |
+| `/app/plugins` | StackOne HCM plugin (Workday, ADP, Dayforce) |
 | `/app/onboarding` | Hire checklists + task status (F5) |
 | `/app/training` | Learning paths + item progress |
 | `/app/settings` | Team invites, legal/CASL checklist, billing |
@@ -56,12 +57,14 @@ Open [http://localhost:3000](http://localhost:3000). Landing → trial/sign-in �
 - **Draft, never send** — outbound email/posting/proposal → `outbox_drafts`; email transmits only after human approve + Resend
 - **HITL gates** — mutating tools pause with HMAC-signed continuation tokens
 - **Org isolation** — each user gets an org; store stamps/filters `org_id` on business tables
+- **Model picker** — Auto / ChatGPT / Claude / Gemini / Grok in chat (needs matching API keys)
 - **Compliance web search** — `web_search` tool (Responses API) required before `draft_change_brief`; official https government URLs enforced
 - **Audit** — every tool/approval logged
 
 ## API (selected)
 
-- `POST /api/agents/[agentId]/stream` (+ `/continue`) — NDJSON agent loop
+- `POST /api/agents/[agentId]/stream` (+ `/continue`) — NDJSON agent loop (`modelId` optional)
+- `GET /api/models` — model catalog + provider availability
 - `POST /api/chat` — suggest agent (`llm` | `keyword`)
 - `GET/POST/DELETE /api/org/members` · `POST /api/org/invites/accept`
 - `GET /api/audit` (JSON) · `GET /api/audit?format=csv`

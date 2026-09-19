@@ -14,6 +14,7 @@ import {
 import { getOpenAIApiKey, getOpenAIAgentModel } from "@/lib/openai";
 import { allowRequest, rateLimitKey } from "@/lib/rateLimit";
 import { chooseAgent, type AgentId } from "@/lib/agentRouter";
+import { getChatModelOption, isChatModelId } from "@/lib/models";
 
 // Node runtime: more reliable for OpenAI streaming than Edge (avoids timeout/parsing issues)
 export const runtime = "nodejs";
@@ -34,6 +35,7 @@ const BODY_SCHEMA = z.object({
   file_filenames: z.array(z.string()).max(10).optional(),
   document_text: z.string().max(12000).optional(),
   mode: z.enum(["default", "onboarding", "learning_development"]).optional(),
+  modelId: z.string().max(80).optional(),
 });
 
 type Body = z.infer<typeof BODY_SCHEMA>;
@@ -86,7 +88,12 @@ export async function POST(req: NextRequest) {
   }
 
   const apiKey = getOpenAIApiKey();
-  const model = getOpenAIAgentModel("gpt-4o");
+  // Document compliance path uses OpenAI Responses API (web search). Only OpenAI
+  // model picks apply here; other vendors fall back to the configured agent model.
+  let model = getOpenAIAgentModel("gpt-4o");
+  if (body.modelId && isChatModelId(body.modelId) && body.modelId.startsWith("openai:")) {
+    model = getChatModelOption(body.modelId).apiModel;
+  }
 
   if (!apiKey) {
     return NextResponse.json(

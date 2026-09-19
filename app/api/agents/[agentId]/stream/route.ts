@@ -5,14 +5,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import OpenAI from "openai";
 import { z } from "zod";
-import { getOpenAIApiKey, getOpenAIAgentModel } from "@/lib/openai";
+import { getOpenAIApiKey } from "@/lib/openai";
 import { allowRequest, rateLimitKey } from "@/lib/rateLimit";
 import { getAgent } from "@/lib/agents/registry";
 import { runAgentLoop, type ChatMessage, type StreamEvent } from "@/lib/agents/runtime";
 import { resolveOrgForEmail } from "@/lib/org";
 import { runWithStoreContext } from "@/lib/store";
+import { isChatModelId } from "@/lib/models";
+import { resolveChatLlm } from "@/lib/llm";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -25,6 +26,7 @@ const BODY_SCHEMA = z.object({
     .max(20)
     .optional(),
   jurisdiction: z.enum(["NA", "CA", "US"]).optional(),
+  modelId: z.string().max(80).optional(),
 });
 
 function getClientIp(req: NextRequest): string {
@@ -62,12 +64,21 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
   }
 
   const apiKey = getOpenAIApiKey();
-  if (!apiKey) {
-    return NextResponse.json({ error: "Server configuration error: OpenAI API key not configured." }, { status: 500 });
+  // OpenAI key still preferred for Auto; other providers validated in resolveChatLlm
+  const modelId = body.modelId && isChatModelId(body.modelId) ? body.modelId : "auto";
+  let llm;
+  try {
+    llm = resolveChatLlm(modelId);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Model not available";
+    // If only OpenAI missing and they asked auto with no keys at all:
+    if (!apiKey && modelId === "auto") {
+      return NextResponse.json({ error: "Server configuration error: no LLM API key configured." }, { status: 500 });
+    }
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  const model = getOpenAIAgentModel("gpt-4o");
-  const openai = new OpenAI({ apiKey });
+  const { client: openai, model, option } = llm;
   const email = String(token.email);
   const org = await resolveOrgForEmail(email);
   const messages: ChatMessage[] = [
@@ -87,7 +98,12 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
       };
       try {
         await runWithStoreContext({ orgId: org.orgId }, async () => {
-          emit({ type: "step", id: "agent", label: `${agent.label} agent thinking…`, status: "active" });
+          emit({
+            type: "step",
+            id: "agent",
+            label: `${agent.label} · ${option.label}`,
+            status: "active",
+          });
           await runAgentLoop({
             agent,
             openai,

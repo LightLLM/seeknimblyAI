@@ -8,9 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import OpenAI from "openai";
 import { z } from "zod";
-import { getOpenAIApiKey, getOpenAIAgentModel } from "@/lib/openai";
 import { allowRequest, rateLimitKey } from "@/lib/rateLimit";
 import { getAgent } from "@/lib/agents/registry";
 import { toolByName } from "@/lib/agents/types";
@@ -23,6 +21,8 @@ import {
 } from "@/lib/agents/runtime";
 import { resolveOrgForEmail } from "@/lib/org";
 import { runWithStoreContext } from "@/lib/store";
+import { isChatModelId } from "@/lib/models";
+import { resolveChatLlm } from "@/lib/llm";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -41,6 +41,7 @@ const BODY_SCHEMA = z.object({
     )
     .min(1),
   jurisdiction: z.enum(["NA", "CA", "US"]).optional(),
+  modelId: z.string().max(80).optional(),
 });
 
 function streamLine(ev: StreamEvent): string {
@@ -72,11 +73,18 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
     return NextResponse.json({ error: "Invalid or tampered continuation token." }, { status: 400 });
   }
 
-  const apiKey = getOpenAIApiKey();
-  if (!apiKey) return NextResponse.json({ error: "OpenAI API key not configured." }, { status: 500 });
+  const modelId = body.modelId && isChatModelId(body.modelId) ? body.modelId : "auto";
+  let llm;
+  try {
+    llm = resolveChatLlm(modelId);
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Model not available" },
+      { status: 400 }
+    );
+  }
 
-  const model = getOpenAIAgentModel("gpt-4o");
-  const openai = new OpenAI({ apiKey });
+  const { client: openai, model } = llm;
   const email = String(token.email);
   const org = await resolveOrgForEmail(email);
   const messages: ChatMessage[] = decoded.messages;
