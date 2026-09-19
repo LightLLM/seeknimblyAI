@@ -96,6 +96,72 @@ function parseArgs(raw: string | undefined): Record<string, unknown> {
   }
 }
 
+type AccumToolCall = {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+};
+
+/**
+ * One streamed completion turn. Emits text deltas live when the model is
+ * producing a final answer (no tool calls). If tool calls appear, text is
+ * buffered and not treated as the user-facing answer.
+ */
+async function streamCompletion(params: {
+  openai: OpenAI;
+  model: string;
+  messages: ChatMessage[];
+  tools: OpenAI.Chat.Completions.ChatCompletionTool[];
+  emit: (ev: StreamEvent) => void;
+}): Promise<{ content: string; tool_calls: AccumToolCall[] }> {
+  const stream = await params.openai.chat.completions.create({
+    model: params.model,
+    messages: params.messages,
+    tools: params.tools.length > 0 ? params.tools : undefined,
+    max_completion_tokens: 1536,
+    stream: true,
+  });
+
+  let content = "";
+  const toolMap = new Map<number, AccumToolCall>();
+  let sawToolCalls = false;
+
+  for await (const chunk of stream) {
+    const delta = chunk.choices?.[0]?.delta;
+    if (!delta) continue;
+
+    if (delta.tool_calls) {
+      sawToolCalls = true;
+      for (const tc of delta.tool_calls) {
+        const idx = tc.index ?? 0;
+        const existing = toolMap.get(idx) ?? {
+          id: tc.id ?? `call_${idx}`,
+          type: "function" as const,
+          function: { name: "", arguments: "" },
+        };
+        if (tc.id) existing.id = tc.id;
+        if (tc.function?.name) existing.function.name += tc.function.name;
+        if (tc.function?.arguments) existing.function.arguments += tc.function.arguments;
+        toolMap.set(idx, existing);
+      }
+    }
+
+    if (typeof delta.content === "string" && delta.content) {
+      content += delta.content;
+      if (!sawToolCalls) {
+        params.emit({ type: "text", delta: delta.content });
+      }
+    }
+  }
+
+  const tool_calls = Array.from(toolMap.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([, v]) => v)
+    .filter((t) => t.function.name);
+
+  return { content, tool_calls };
+}
+
 export const MAX_TOOL_ROUNDS = 10;
 
 /**
@@ -113,29 +179,32 @@ export async function runAgentLoop(params: {
   const { agent, openai, model, messages, ctx, emit } = params;
   let round = 0;
   let lastContent = "";
+  const tools = agent.tools.map((t) => t.definition);
 
   while (round < MAX_TOOL_ROUNDS) {
-    const response = await openai.chat.completions.create({
+    const { content, tool_calls } = await streamCompletion({
+      openai,
       model,
       messages,
-      tools: agent.tools.map((t) => t.definition),
-      max_completion_tokens: 1536,
+      tools,
+      emit,
     });
+    lastContent = content;
 
-    const msg = response.choices?.[0]?.message;
-    if (!msg) {
-      emit({ type: "error", error: "No message in model response." });
-      return;
-    }
-    lastContent = typeof msg.content === "string" ? msg.content : "";
-
-    if (msg.tool_calls && msg.tool_calls.length > 0) {
-      messages.push({ role: "assistant", content: msg.content ?? null, tool_calls: msg.tool_calls });
+    if (tool_calls.length > 0) {
+      messages.push({
+        role: "assistant",
+        content: content || null,
+        tool_calls: tool_calls.map((t) => ({
+          id: t.id,
+          type: "function" as const,
+          function: { name: t.function.name, arguments: t.function.arguments },
+        })),
+      });
 
       const approvalCalls: PendingCall[] = [];
-      const autoCalls: typeof msg.tool_calls = [];
-      for (const tc of msg.tool_calls) {
-        if (tc.type !== "function") continue;
+      const autoCalls: AccumToolCall[] = [];
+      for (const tc of tool_calls) {
         const tool = toolByName(agent, tc.function.name);
         if (tool?.requiresApproval) {
           approvalCalls.push({ id: tc.id, name: tc.function.name, args: parseArgs(tc.function.arguments) });
@@ -145,7 +214,6 @@ export async function runAgentLoop(params: {
       }
 
       for (const tc of autoCalls) {
-        if (tc.type !== "function") continue;
         const name = tc.function.name;
         const tool = toolByName(agent, name);
         emit({ type: "step", id: name, label: `Running ${name}…`, status: "active" });

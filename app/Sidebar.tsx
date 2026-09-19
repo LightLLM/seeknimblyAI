@@ -80,6 +80,7 @@ type ClientRow = { id: string; legal_name: string; status?: string };
 const NAV_ITEMS: { href: string; label: string; icon: string }[] = [
   { href: "/app/loop", label: "The Loop", icon: "M12 2a10 10 0 11-9.95 9M12 6v6l4 2" },
   { href: "/app/metrics", label: "Metrics", icon: "M18 20V10M12 20V4M6 20v-6" },
+  { href: "/app/intake", label: "Intake", icon: "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M12 18v-6M9 15h6" },
   { href: "/app/pipeline", label: "ATS Pipeline", icon: "M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2M9 2h6v4H9z" },
   { href: "/app/crm", label: "CRM", icon: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" },
   { href: "/app/compliance", label: "Compliance", icon: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" },

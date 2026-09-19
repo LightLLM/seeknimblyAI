@@ -7,8 +7,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import OpenAI from "openai";
 import { z } from "zod";
-import { getOpenAIApiKey, getOpenAIModel } from "@/lib/openai";
-import { check, record, rateLimitKey } from "@/lib/rateLimit";
+import { getOpenAIApiKey, getOpenAIAgentModel } from "@/lib/openai";
+import { allowRequest, rateLimitKey } from "@/lib/rateLimit";
 import { getAgent } from "@/lib/agents/registry";
 import { runAgentLoop, type ChatMessage, type StreamEvent } from "@/lib/agents/runtime";
 import { resolveOrgForEmail } from "@/lib/org";
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
   }
 
   const key = rateLimitKey(getClientIp(req), `agents:${agent.id}`);
-  if (!check(key)) {
+  if (!(await allowRequest(key))) {
     return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
   }
 
@@ -65,9 +65,8 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
   if (!apiKey) {
     return NextResponse.json({ error: "Server configuration error: OpenAI API key not configured." }, { status: 500 });
   }
-  record(key);
 
-  const model = getOpenAIModel("gpt-4o");
+  const model = getOpenAIAgentModel("gpt-4o");
   const openai = new OpenAI({ apiKey });
   const email = String(token.email);
   const org = await resolveOrgForEmail(email);

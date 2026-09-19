@@ -9,8 +9,8 @@ import {
   COMPLIANCE_CHECK_QUESTION_INSTRUCTION,
   type Jurisdiction,
 } from "@/lib/prompts";
-import { getOpenAIApiKey, getOpenAIModel } from "@/lib/openai";
-import { check, record, rateLimitKey } from "@/lib/rateLimit";
+import { getOpenAIApiKey, getOpenAIAgentModel } from "@/lib/openai";
+import { allowRequest, rateLimitKey } from "@/lib/rateLimit";
 import { chooseAgent, type AgentId } from "@/lib/agentRouter";
 
 export const runtime = "nodejs";
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
   const key = rateLimitKey(ip, "hr");
 
-  if (!check(key)) {
+  if (!(await allowRequest(key))) {
     log("info", { ip, event: "rate_limit_exceeded", route: "hr" });
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
   }
 
   const apiKey = getOpenAIApiKey();
-  const model = getOpenAIModel("gpt-5");
+  const model = getOpenAIAgentModel("gpt-5");
 
   if (!apiKey) {
     log("error", { ip, event: "missing_openai_key", route: "hr" });
@@ -86,8 +86,6 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-
-  record(key);
 
   const docSummary = (body.document_text ?? "").trim().slice(0, 8000);
   const hasDocument = docSummary.length > 0;

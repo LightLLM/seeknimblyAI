@@ -730,6 +730,32 @@ export function ChatPage() {
                         {msg.content}
                       </p>
                     )}
+                    {msg.role === "assistant" && msg.agent === "compliance" && !isErrorBubble(msg.content) && (
+                      <button
+                        type="button"
+                        className="mt-1.5 text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text)] underline-offset-2 hover:underline"
+                        onClick={async () => {
+                          const note = window.prompt("What looks wrong? (optional note)") ?? undefined;
+                          try {
+                            const res = await fetch("/api/report-error", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                agent: "compliance",
+                                note: note || undefined,
+                                message_excerpt: msg.content.slice(0, 2000),
+                              }),
+                            });
+                            const data = await res.json();
+                            window.alert(res.ok ? data.message ?? "Reported." : data.error ?? "Could not report.");
+                          } catch {
+                            window.alert("Network error reporting this answer.");
+                          }
+                        }}
+                      >
+                        Report an error
+                      </button>
+                    )}
                   </div>
                 </li>
               ))}

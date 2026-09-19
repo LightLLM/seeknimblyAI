@@ -9,6 +9,7 @@
     "lint": "next lint",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:eval": "jest lib/eval/golden.test.ts",
     "test:stream": "node scripts/test-stream.mjs",
     "list-models": "node scripts/list-models.mjs"
   },

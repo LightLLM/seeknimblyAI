@@ -274,6 +274,14 @@ create table if not exists public.org_members (
 alter table public.orgs enable row level security;
 alter table public.org_members enable row level security;
 
+-- Durable rate limits (shared across Vercel instances when Supabase is on)
+create table if not exists public.rate_limits (
+  key text primary key,
+  count int not null default 0,
+  reset_at timestamptz not null
+);
+alter table public.rate_limits enable row level security;
+
 -- Stamp org_id on every business table (idempotent adds for existing DBs).
 do $$
 declare t text;

@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 jest.mock("@/lib/rateLimit", () => ({
   check: jest.fn(() => true),
   record: jest.fn(),
+  allowRequest: jest.fn(async () => true),
   rateLimitKey: jest.fn((_ip: string, route: string) => `key:${route}`),
 }));
 

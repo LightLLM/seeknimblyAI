@@ -6,7 +6,7 @@
  */
 
 import OpenAI from "openai";
-import { getOpenAIApiKey, getOpenAIModel } from "@/lib/openai";
+import { getOpenAIApiKey, getOpenAIRouterModel } from "@/lib/openai";
 import { AGENTS, AGENT_IDS } from "@/lib/agents/registry";
 
 export type AgentRoute = {
@@ -54,7 +54,7 @@ export async function routeMessage(
   try {
     const openai = new OpenAI({ apiKey });
     const res = await openai.chat.completions.create({
-      model: getOpenAIModel("gpt-4o-mini"),
+      model: getOpenAIRouterModel("gpt-4o-mini"),
       messages: [
         {
           role: "system",

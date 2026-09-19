@@ -11,8 +11,8 @@ import {
   COMPLIANCE_CHECK_QUESTION_INSTRUCTION,
   type Jurisdiction,
 } from "@/lib/prompts";
-import { getOpenAIApiKey, getOpenAIModel } from "@/lib/openai";
-import { check, record, rateLimitKey } from "@/lib/rateLimit";
+import { getOpenAIApiKey, getOpenAIAgentModel } from "@/lib/openai";
+import { allowRequest, rateLimitKey } from "@/lib/rateLimit";
 import { chooseAgent, type AgentId } from "@/lib/agentRouter";
 
 // Node runtime: more reliable for OpenAI streaming than Edge (avoids timeout/parsing issues)
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
   const key = rateLimitKey(ip, "hr");
 
-  if (!check(key)) {
+  if (!(await allowRequest(key))) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },
       { status: 429 }
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   }
 
   const apiKey = getOpenAIApiKey();
-  const model = getOpenAIModel("gpt-4o");
+  const model = getOpenAIAgentModel("gpt-4o");
 
   if (!apiKey) {
     return NextResponse.json(
@@ -94,8 +94,6 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-
-  record(key);
 
   const docSummary = (body.document_text ?? "").trim().slice(0, 8000);
   const hasDocument = docSummary.length > 0;

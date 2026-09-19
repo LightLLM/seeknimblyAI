@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { z } from "zod";
-import { getOpenAIApiKey, getOpenAIModel } from "@/lib/openai";
-import { check, record, rateLimitKey } from "@/lib/rateLimit";
+import { getOpenAIApiKey, getOpenAIAgentModel } from "@/lib/openai";
+import { allowRequest, rateLimitKey } from "@/lib/rateLimit";
 import { getAgentSystemPrompt, type AgentParams } from "@/lib/agent-prompts";
 import { AGENT_TOOLS, executeTool, toolRequiresApproval } from "@/lib/agent-tools";
 
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
   const key = rateLimitKey(ip, "agent");
 
-  if (!check(key)) {
+  if (!(await allowRequest(key))) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },
       { status: 429 }
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
   }
 
   const apiKey = getOpenAIApiKey();
-  const model = getOpenAIModel("gpt-4o");
+  const model = getOpenAIAgentModel("gpt-4o");
 
   if (!apiKey) {
     return NextResponse.json(
@@ -90,8 +90,6 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-
-  record(key);
 
   const params: AgentParams = body.params ?? {};
   const systemPrompt = getAgentSystemPrompt(params);

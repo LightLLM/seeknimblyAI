@@ -1,4 +1,4 @@
-import { getOpenAIApiKey, getOpenAIModel } from "@/lib/openai";
+import { getOpenAIApiKey, getOpenAIModel, getOpenAIRouterModel, getOpenAIAgentModel } from "@/lib/openai";
 
 describe("openai", () => {
   const origEnv = process.env;
@@ -52,6 +52,24 @@ describe("openai", () => {
     it("returns default when OPENAI_MODEL is empty after sanitize", () => {
       process.env.OPENAI_MODEL = "  \n  ";
       expect(getOpenAIModel("gpt-4o")).toBe("gpt-4o");
+    });
+  });
+
+  describe("router vs agent models", () => {
+    it("uses dedicated env vars when set", () => {
+      process.env.OPENAI_ROUTER_MODEL = "gpt-4o-mini";
+      process.env.OPENAI_AGENT_MODEL = "gpt-4o";
+      delete process.env.OPENAI_MODEL;
+      expect(getOpenAIRouterModel()).toBe("gpt-4o-mini");
+      expect(getOpenAIAgentModel()).toBe("gpt-4o");
+    });
+
+    it("falls back to OPENAI_MODEL then defaults", () => {
+      delete process.env.OPENAI_ROUTER_MODEL;
+      delete process.env.OPENAI_AGENT_MODEL;
+      process.env.OPENAI_MODEL = "gpt-4.1";
+      expect(getOpenAIRouterModel()).toBe("gpt-4.1");
+      expect(getOpenAIAgentModel()).toBe("gpt-4.1");
     });
   });
 });

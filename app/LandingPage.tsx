@@ -413,6 +413,7 @@ export function LandingPage() {
             <a href="#how" style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13.5, color: C.mid, textDecoration: "none" }}>How It Works</a>
             <a href="#pricing" style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13.5, color: C.mid, textDecoration: "none" }}>Pricing</a>
             <Link href="/login" style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13.5, color: C.mid, textDecoration: "none" }}>Sign in</Link>
+            <Link href="/demo" style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13.5, color: C.ink, textDecoration: "none", fontWeight: 500 }}>Day-1 Snapshot</Link>
           </div>
           <button
             type="button"

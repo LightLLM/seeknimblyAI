@@ -18,6 +18,13 @@ export type AuditEntry = {
 
 export async function logAudit(entry: AuditEntry): Promise<void> {
   try {
+    // PII hygiene: truncate detail aggressively; never log full resumes.
+    const detail = entry.detail
+      ? entry.detail
+          .replace(/\b[\w.+-]+@[\w.-]+\.\w+\b/g, "[email]")
+          .replace(/\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/g, "[phone]")
+          .slice(0, 800)
+      : null;
     await insertRow("audit_log", {
       ts: new Date().toISOString(),
       agent: entry.agent,
@@ -26,7 +33,7 @@ export async function logAudit(entry: AuditEntry): Promise<void> {
       entity_id: entry.entity_id ?? null,
       actor: entry.actor ?? "agent",
       status: entry.status ?? "ok",
-      detail: entry.detail ? entry.detail.slice(0, 2000) : null,
+      detail,
     });
   } catch (e) {
     console.error("[audit] failed to write audit log:", e);

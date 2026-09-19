@@ -6,7 +6,7 @@
  */
 
 import OpenAI from "openai";
-import { getOpenAIApiKey, getOpenAIModel } from "@/lib/openai";
+import { getOpenAIApiKey, getOpenAIAgentModel } from "@/lib/openai";
 import { getAgent } from "@/lib/agents/registry";
 import { runAgentLoop, type StreamEvent, type ChatMessage } from "@/lib/agents/runtime";
 import { getAutomation } from "@/lib/automations";
@@ -53,7 +53,7 @@ export async function runAutomation(id: string, opts: { force?: boolean; orgId?:
     return { ok: false, automation_id: id, status: "error", summary: `Unknown agent: ${automation.agent}` };
   }
 
-  const model = getOpenAIModel("gpt-4o");
+  const model = getOpenAIAgentModel("gpt-4o");
   const openai = new OpenAI({ apiKey });
   const messages: ChatMessage[] = [
     { role: "system", content: agent.getSystemPrompt({ jurisdiction: "CA" }) },

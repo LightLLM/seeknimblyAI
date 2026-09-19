@@ -29,6 +29,7 @@ Open [http://localhost:3000](http://localhost:3000). Landing â†’ trial/sign-in â
 | Route | Purpose |
 |-------|---------|
 | `/app` | Unified chat â€” LLM router â†’ agent with approval card |
+| `/app/intake` | Structured hire / job / client forms |
 | `/app/pipeline` | ATS pipeline (applications by status) |
 | `/app/crm` | Lead/CRM stages |
 | `/app/compliance` | Compliance calendar + open events |
@@ -42,6 +43,7 @@ Open [http://localhost:3000](http://localhost:3000). Landing â†’ trial/sign-in â
 | `/app/capabilities` | Toggle agents / inspect tools |
 | `/app/messaging` | Connector status + channel setup |
 | `/app/artifacts` | All drafts by channel |
+| `/demo` | Public Day-1 Compliance Snapshot (no signup) |
 
 ## Agents & safety
 
@@ -64,6 +66,8 @@ Open [http://localhost:3000](http://localhost:3000). Landing â†’ trial/sign-in â
 
 ```bash
 npm test && npm run build
+# Compliance golden questions only:
+npm run test:eval
 ```
 
 Deploy on Vercel with the same env vars. Cron schedules live in `vercel.json`.
