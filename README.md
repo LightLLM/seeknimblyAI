@@ -30,6 +30,7 @@ Open [http://localhost:3000](http://localhost:3000). Landing → trial/sign-in �
 |-------|---------|
 | `/app` | Unified chat — LLM router → agent with approval card |
 | `/app/intake` | Structured hire / job / client forms |
+| `/app/partners` | Channel-partner firms → linked SMB clients |
 | `/app/pipeline` | ATS pipeline (applications by status) |
 | `/app/crm` | Lead/CRM stages |
 | `/app/compliance` | Compliance calendar + open events |

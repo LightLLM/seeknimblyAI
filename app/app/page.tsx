@@ -10,12 +10,16 @@ type SubState = {
   canAccess: boolean;
 } | null;
 
+type Plans = { monthly: boolean; annual: boolean; annual_discount_hint: string };
+
 export default function AppPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [subState, setSubState] = useState<SubState>(null);
-  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [plans, setPlans] = useState<Plans | null>(null);
+  const [checkoutLoading, setCheckoutLoading] = useState<"monthly" | "annual" | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -29,17 +33,30 @@ export default function AppPage() {
       .then((r) => r.json())
       .then((data) => setSubState({ subscription: data.subscription, canAccess: data.canAccess ?? false }))
       .catch(() => setSubState({ subscription: null, canAccess: false }));
+    fetch("/api/billing/plans")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: Plans | null) => setPlans(d))
+      .catch(() => setPlans(null));
   }, [status, session]);
 
-  async function handleStartTrial() {
-    setCheckoutLoading(true);
+  async function handleStartTrial(plan: "monthly" | "annual") {
+    setCheckoutLoading(plan);
+    setCheckoutError(null);
     try {
-      const res = await fetch("/api/stripe/checkout", { method: "POST" });
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan }),
+      });
       const data = await res.json();
       if (data.url) window.location.href = data.url;
-      else setCheckoutLoading(false);
+      else {
+        setCheckoutError(data.error ?? "Checkout failed");
+        setCheckoutLoading(null);
+      }
     } catch {
-      setCheckoutLoading(false);
+      setCheckoutError("Network error");
+      setCheckoutLoading(null);
     }
   }
 
@@ -74,23 +91,36 @@ export default function AppPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--bg)] px-4">
         <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-8 text-center">
-          <h1 className="text-[22px] font-semibold text-[var(--text)] mb-2">
-            Start your 15-day free trial
-          </h1>
+          <h1 className="text-[22px] font-semibold text-[var(--text)] mb-2">Start your 15-day free trial</h1>
           <p className="text-[15px] text-[var(--text-secondary)] mb-6">
-            Add a payment method to unlock Seeknimbly HR. You won’t be charged during the trial. Cancel anytime within 15 days with no charge.
+            Add a payment method to unlock Seeknimbly HR. You won’t be charged during the trial. Cancel anytime within 15
+            days with no charge.
           </p>
-          <button
-            type="button"
-            onClick={handleStartTrial}
-            disabled={checkoutLoading}
-            className="w-full h-12 rounded-[var(--radius-lg)] bg-[var(--accent)] text-white text-[15px] font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
-          >
-            {checkoutLoading ? "Redirecting…" : "Continue to payment setup"}
-          </button>
-          <p className="mt-4 text-[12px] text-[var(--text-tertiary)]">
-            Cancel anytime from Billing after you sign up.
-          </p>
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => handleStartTrial("monthly")}
+              disabled={checkoutLoading !== null}
+              className="w-full h-12 rounded-[var(--radius-lg)] bg-[var(--accent)] text-white text-[15px] font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
+            >
+              {checkoutLoading === "monthly" ? "Redirecting…" : "Monthly — start trial"}
+            </button>
+            {plans?.annual && (
+              <button
+                type="button"
+                onClick={() => handleStartTrial("annual")}
+                disabled={checkoutLoading !== null}
+                className="w-full h-12 rounded-[var(--radius-lg)] border border-[var(--border-strong)] text-[var(--text)] text-[15px] font-medium hover:bg-[var(--surface-hover)] disabled:opacity-50"
+              >
+                {checkoutLoading === "annual" ? "Redirecting…" : "Annual — start trial (best value)"}
+              </button>
+            )}
+          </div>
+          {plans?.annual && (
+            <p className="mt-3 text-[12px] text-[var(--text-tertiary)]">{plans.annual_discount_hint}</p>
+          )}
+          {checkoutError && <p className="mt-3 text-[13px] text-amber-500">{checkoutError}</p>}
+          <p className="mt-4 text-[12px] text-[var(--text-tertiary)]">Cancel anytime from Billing after you sign up.</p>
           <button
             type="button"
             onClick={() => signOut({ callbackUrl: "/" })}

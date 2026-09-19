@@ -239,6 +239,7 @@ export const clientOnboardingTools: AgentTool[] = [
       key_contact_email: str("Key contact email"),
       tier: str("Purchased tier"),
       renewal_date: str("Renewal date YYYY-MM-DD"),
+      channel_partner_lead_id: str("Optional: lead id of the accounting/channel partner firm"),
     },
     required: ["legal_name"],
     handler: async (args) => {
@@ -252,6 +253,7 @@ export const clientOnboardingTools: AgentTool[] = [
         key_contact_email: args.key_contact_email ?? null,
         tier: args.tier ?? null,
         renewal_date: args.renewal_date ?? null,
+        channel_partner_lead_id: args.channel_partner_lead_id ?? null,
         status: "onboarding",
       });
       await logAudit({ agent: "client_onboarding", action: "client_created", entity_type: "client", entity_id: String(client.id), status: "approved", detail: String(args.legal_name) });

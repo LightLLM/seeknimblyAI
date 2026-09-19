@@ -1,12 +1,11 @@
 /**
- * GET /api/cron?task=<automation-id> — scheduler entrypoint.
- * Secured with CRON_SECRET (Vercel Cron sends Authorization: Bearer <secret>).
- * Only ENABLED automations run via cron; use the Automations page to enable.
- * Runs once per org so tenants stay isolated.
+ * GET /api/cron?task=<automation-id|data-retention>
+ * Secured with CRON_SECRET. Automations run per org; data-retention is global.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { runAutomationForAllOrgs } from "@/lib/automations-runner";
+import { runDataRetention } from "@/lib/retention";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -23,6 +22,12 @@ export async function GET(req: NextRequest) {
   }
   const task = req.nextUrl.searchParams.get("task");
   if (!task) return NextResponse.json({ error: "Missing ?task=" }, { status: 400 });
+
+  if (task === "data-retention") {
+    const result = await runDataRetention();
+    return NextResponse.json(result);
+  }
+
   const { results } = await runAutomationForAllOrgs(task);
   return NextResponse.json({
     task,

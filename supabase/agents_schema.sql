@@ -139,6 +139,7 @@ create table if not exists public.clients (
   tier text,
   renewal_date date,
   status text not null default 'onboarding', -- onboarding | live | paused | churned
+  channel_partner_lead_id uuid, -- lead id of accounting/channel partner firm
   created_at timestamptz not null default now()
 );
 
@@ -281,6 +282,10 @@ create table if not exists public.rate_limits (
   reset_at timestamptz not null
 );
 alter table public.rate_limits enable row level security;
+
+-- Channel partner link (idempotent for existing DBs)
+alter table public.clients add column if not exists channel_partner_lead_id uuid;
+create index if not exists idx_clients_partner on public.clients (channel_partner_lead_id);
 
 -- Stamp org_id on every business table (idempotent adds for existing DBs).
 do $$
