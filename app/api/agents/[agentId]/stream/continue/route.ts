@@ -22,7 +22,8 @@ import {
 import { resolveOrgForEmail } from "@/lib/org";
 import { runWithStoreContext } from "@/lib/store";
 import { isChatModelId } from "@/lib/models";
-import { resolveChatLlm } from "@/lib/llm";
+import { isLlmCreditOrQuotaError, resolveChatLlm, resolveQuotaFallbackLlm } from "@/lib/llm";
+import { getOrgAllowedProviders } from "@/lib/org-llm";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -73,10 +74,14 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
     return NextResponse.json({ error: "Invalid or tampered continuation token." }, { status: 400 });
   }
 
+  const email = String(token.email);
+  const org = await resolveOrgForEmail(email);
+  const allowedProviders = await getOrgAllowedProviders(org.orgId);
+  const llmOpts = { allowedProviders };
   const modelId = body.modelId && isChatModelId(body.modelId) ? body.modelId : "auto";
   let llm;
   try {
-    llm = resolveChatLlm(modelId);
+    llm = resolveChatLlm(modelId, llmOpts);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Model not available" },
@@ -85,8 +90,6 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
   }
 
   const { client: openai, model } = llm;
-  const email = String(token.email);
-  const org = await resolveOrgForEmail(email);
   const messages: ChatMessage[] = decoded.messages;
   const toolCtx = {
     openai,
@@ -156,7 +159,32 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
             messages.push({ role: "tool", tool_call_id: decision.id, content: result });
           }
 
-          await runAgentLoop({ agent, openai, model, messages, ctx: toolCtx, emit });
+          try {
+            await runAgentLoop({ agent, openai, model, messages, ctx: toolCtx, emit });
+          } catch (err) {
+            const fallback = isLlmCreditOrQuotaError(err) ? resolveQuotaFallbackLlm(llm, llmOpts) : null;
+            if (!fallback) throw err;
+            const message = err instanceof Error ? err.message : String(err);
+            console.warn(
+              `[api/agents/${agent.id}/continue] ${llm.provider} credit/quota error; falling back to OpenRouter:`,
+              message
+            );
+            emit({
+              type: "step",
+              id: "llm-fallback",
+              label: `OpenAI out of credits — retrying via ${fallback.option.label}…`,
+              status: "active",
+            });
+            const fbCtx = { ...toolCtx, openai: fallback.client, model: fallback.model };
+            await runAgentLoop({
+              agent,
+              openai: fallback.client,
+              model: fallback.model,
+              messages,
+              ctx: fbCtx,
+              emit,
+            });
+          }
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Request failed";

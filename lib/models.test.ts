@@ -4,7 +4,13 @@ import {
   isChatModelId,
   DEFAULT_CHAT_MODEL_ID,
 } from "@/lib/models";
-import { getProviderAvailability, listModelsForClient, resolveChatLlm } from "@/lib/llm";
+import {
+  getProviderAvailability,
+  isLlmCreditOrQuotaError,
+  listModelsForClient,
+  resolveChatLlm,
+  resolveQuotaFallbackLlm,
+} from "@/lib/llm";
 import { getOpenAIApiKey } from "@/lib/openai";
 
 describe("chat model catalog", () => {
@@ -84,5 +90,40 @@ describe("resolveChatLlm", () => {
   it("getOpenAIApiKey still works", () => {
     process.env.OPENAI_API_KEY = "sk-abc";
     expect(getOpenAIApiKey()).toBe("sk-abc");
+  });
+
+  it("detects OpenAI out-of-credit / 429 quota errors", () => {
+    expect(
+      isLlmCreditOrQuotaError(
+        Object.assign(new Error("429 You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/."), {
+          status: 429,
+          code: "insufficient_quota",
+        })
+      )
+    ).toBe(true);
+    expect(isLlmCreditOrQuotaError(new Error("network timeout"))).toBe(false);
+  });
+
+  it("falls back from OpenAI to OpenRouter on quota errors when key is set", () => {
+    process.env.OPENAI_API_KEY = "sk-test";
+    process.env.OPENROUTER_API_KEY = "sk-or-test";
+    const primary = resolveChatLlm("auto");
+    expect(primary.provider).toBe("openai");
+    const fb = resolveQuotaFallbackLlm(primary);
+    expect(fb?.provider).toBe("openrouter");
+  });
+
+  it("org allowlist blocks OpenAI and prefers OpenRouter for Auto", () => {
+    process.env.OPENAI_API_KEY = "sk-test";
+    process.env.OPENROUTER_API_KEY = "sk-or-test";
+    delete process.env.ANTHROPIC_API_KEY;
+    const llm = resolveChatLlm("auto", { allowedProviders: ["openrouter"] });
+    expect(llm.provider).toBe("openrouter");
+    expect(() => resolveChatLlm("openai:gpt-4o", { allowedProviders: ["openrouter"] })).toThrow(
+      /blocked for this workspace/i
+    );
+    expect(resolveQuotaFallbackLlm(resolveChatLlm("openai:gpt-4o"), { allowedProviders: ["openrouter"] })?.provider).toBe(
+      "openrouter"
+    );
   });
 });

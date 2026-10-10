@@ -12,6 +12,7 @@ import {
 import { getOpenAIApiKey, getOpenAIAgentModel } from "@/lib/openai";
 import { allowRequest, rateLimitKey } from "@/lib/rateLimit";
 import { chooseAgent, type AgentId } from "@/lib/agentRouter";
+import { requireUser } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,6 +56,9 @@ function log(level: "info" | "error", data: Record<string, unknown>): void {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUser(req);
+  if ("error" in auth) return auth.error;
+
   const ip = getClientIp(req);
   const key = rateLimitKey(ip, "hr");
 

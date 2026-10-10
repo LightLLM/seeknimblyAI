@@ -12,6 +12,7 @@ import {
   type ChatModelOption,
   type ModelProvider,
 } from "@/lib/models";
+import { applyProviderAllowlist } from "@/lib/org-llm";
 
 export type ResolvedLlm = {
   client: OpenAI;
@@ -392,13 +393,80 @@ function anthropicCompatClient(apiKey: string): OpenAI {
   } as unknown as OpenAI;
 }
 
+/** True for OpenAI-style out-of-credit / hard quota / 429 billing failures. */
+export function isLlmCreditOrQuotaError(err: unknown): boolean {
+  const status =
+    typeof err === "object" && err !== null && "status" in err
+      ? Number((err as { status: unknown }).status)
+      : NaN;
+  const code =
+    typeof err === "object" && err !== null && "code" in err
+      ? String((err as { code: unknown }).code ?? "")
+      : "";
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  if (status === 402 || status === 429) {
+    // 429 is also used for rate limits; treat credit wording as definitive, else still
+    // fall back on 429 from OpenAI when a secondary provider exists (caller decides).
+    if (
+      msg.includes("credit") ||
+      msg.includes("quota") ||
+      msg.includes("billing") ||
+      code === "insufficient_quota" ||
+      status === 402
+    ) {
+      return true;
+    }
+    if (status === 429 && (code === "insufficient_quota" || code === "rate_limit_exceeded")) {
+      return true;
+    }
+    // Bare 429 from OpenAI with the common "no credits remaining" copy
+    if (status === 429 && (msg.includes("no credits") || msg.includes("add credits"))) {
+      return true;
+    }
+  }
+  return (
+    code === "insufficient_quota" ||
+    msg.includes("no credits remaining") ||
+    msg.includes("insufficient_quota") ||
+    msg.includes("exceeded your current quota") ||
+    msg.includes("credit balance is too low") ||
+    (msg.includes("add credits") && msg.includes("billing"))
+  );
+}
+
+export type ResolveChatLlmOptions = {
+  /** When set, only these providers may be used (org allowlist). null/omit = all. */
+  allowedProviders?: ModelProvider[] | null;
+};
+
+/**
+ * When ChatGPT/OpenAI is out of credits, retry via OpenRouter if configured.
+ * Returns null when fallback is unavailable or the failed provider was already OpenRouter.
+ */
+export function resolveQuotaFallbackLlm(
+  failed: ResolvedLlm,
+  opts?: ResolveChatLlmOptions
+): ResolvedLlm | null {
+  if (failed.provider !== "openai") return null;
+  const avail = applyProviderAllowlist(getProviderAvailability(), opts?.allowedProviders);
+  if (!avail.openrouter) return null;
+  try {
+    return resolveChatLlm("openrouter:auto", opts);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resolve user model choice to a runnable client. Throws a user-facing Error
- * if the chosen provider has no API key.
+ * if the chosen provider has no API key or is blocked by the org allowlist.
  */
-export function resolveChatLlm(modelId: string | null | undefined): ResolvedLlm {
+export function resolveChatLlm(
+  modelId: string | null | undefined,
+  opts?: ResolveChatLlmOptions
+): ResolvedLlm {
   const option = getChatModelOption(modelId);
-  const avail = getProviderAvailability();
+  const avail = applyProviderAllowlist(getProviderAvailability(), opts?.allowedProviders);
 
   if (option.id === "auto") {
     const picked = pickAuto(avail);
@@ -419,6 +487,11 @@ export function resolveChatLlm(modelId: string | null | undefined): ResolvedLlm 
   }
 
   const provider = option.provider as ModelProvider;
+  if (opts?.allowedProviders != null && !opts.allowedProviders.includes(provider)) {
+    throw new Error(
+      `${option.label} is blocked for this workspace (AI provider allowlist). Pick an allowed model or update Settings → AI.`
+    );
+  }
   if (!avail[provider]) {
     throw new Error(
       `${option.label} is not available (set ${providerEnvHint(provider)}), or pick Auto / another model.`
@@ -443,8 +516,8 @@ export function resolveChatLlm(modelId: string | null | undefined): ResolvedLlm 
   };
 }
 
-export function listModelsForClient() {
-  const avail = getProviderAvailability();
+export function listModelsForClient(allowedProviders?: ModelProvider[] | null) {
+  const avail = applyProviderAllowlist(getProviderAvailability(), allowedProviders);
   return CHAT_MODEL_OPTIONS.map((m) => ({
     ...m,
     available: m.id === "auto" ? Object.values(avail).some(Boolean) : avail[m.provider as ModelProvider],

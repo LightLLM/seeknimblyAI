@@ -15,7 +15,14 @@ type Sub = {
   plan?: string | null;
 };
 
-type Tab = "team" | "legal" | "billing";
+type Tab = "team" | "ai" | "legal" | "billing";
+
+type LlmProviderRow = {
+  id: string;
+  label: string;
+  serverConfigured: boolean;
+  enabled: boolean;
+};
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("team");
@@ -30,6 +37,9 @@ export default function SettingsPage() {
   const [sub, setSub] = useState<Sub | null>(null);
   const [portalBusy, setPortalBusy] = useState(false);
   const [legalDone, setLegalDone] = useState<Record<string, boolean>>({});
+  const [llmProviders, setLlmProviders] = useState<LlmProviderRow[]>([]);
+  const [llmAllAllowed, setLlmAllAllowed] = useState(true);
+  const [llmBusy, setLlmBusy] = useState(false);
 
   const loadTeam = useCallback(async () => {
     const res = await fetch("/api/org/members");
@@ -44,8 +54,17 @@ export default function SettingsPage() {
     setError(null);
   }, []);
 
+  const loadLlm = useCallback(async () => {
+    const res = await fetch("/api/org/llm-providers");
+    if (!res.ok) return;
+    const d = await res.json();
+    setLlmProviders(d.providers ?? []);
+    setLlmAllAllowed(d.allowed == null);
+  }, []);
+
   useEffect(() => {
     loadTeam();
+    loadLlm();
     fetch("/api/subscription")
       .then((r) => r.json())
       .then((d) => setSub(d.subscription))
@@ -55,7 +74,39 @@ export default function SettingsPage() {
     } catch {
       /* ignore */
     }
-  }, [loadTeam]);
+  }, [loadTeam, loadLlm]);
+
+  async function saveLlmProviders(next: { all: boolean; enabledIds?: string[] }) {
+    setLlmBusy(true);
+    setNote(null);
+    try {
+      const body = { allowed: next.all ? null : next.enabledIds ?? [] };
+      const res = await fetch("/api/org/llm-providers", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "Could not save AI providers");
+      setNote(
+        d.allowed == null
+          ? "All configured AI providers allowed for this workspace."
+          : `Customer chat limited to: ${d.allowed.join(", ")}`
+      );
+      await loadLlm();
+    } catch (ex) {
+      setNote(ex instanceof Error ? ex.message : "Failed");
+    } finally {
+      setLlmBusy(false);
+    }
+  }
+
+  function toggleLlmProvider(id: string) {
+    const next = llmProviders.map((p) => (p.id === id ? { ...p, enabled: !p.enabled } : p));
+    setLlmProviders(next);
+    setLlmAllAllowed(false);
+    void saveLlmProviders({ all: false, enabledIds: next.filter((p) => p.enabled).map((p) => p.id) });
+  }
 
   async function invite(e: React.FormEvent) {
     e.preventDefault();
@@ -119,6 +170,7 @@ export default function SettingsPage() {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "team", label: "Team" },
+    { id: "ai", label: "AI" },
     { id: "legal", label: "Legal & CASL" },
     { id: "billing", label: "Billing" },
   ];
@@ -227,6 +279,64 @@ export default function SettingsPage() {
                   ))}
                 </ul>
               </section>
+            )}
+          </div>
+        )}
+
+        {tab === "ai" && (
+          <div className="space-y-5">
+            <p className="text-[14px] text-[var(--text-secondary)]">
+              Control which AI vendors may process this workspace’s chat data. Turn off OpenAI to keep
+              customer conversations on OpenRouter (or other allowed providers) only.
+            </p>
+            <label className="flex items-center gap-3 text-[14px]">
+              <input
+                type="checkbox"
+                checked={llmAllAllowed}
+                disabled={llmBusy || !(org?.role === "owner" || org?.role === "admin")}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setLlmAllAllowed(true);
+                    void saveLlmProviders({ all: true });
+                  } else {
+                    setLlmAllAllowed(false);
+                    const enabled = llmProviders.filter((p) => p.enabled).map((p) => p.id);
+                    void saveLlmProviders({
+                      all: false,
+                      enabledIds: enabled.length ? enabled : ["openrouter"],
+                    });
+                  }
+                }}
+              />
+              Allow all configured providers
+            </label>
+            <ul className="space-y-2">
+              {llmProviders.map((p) => (
+                <li
+                  key={p.id}
+                  className="flex items-center justify-between gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-[14px] font-medium">{p.label}</p>
+                    <p className="text-[12px] text-[var(--text-tertiary)] mt-0.5">
+                      {p.serverConfigured ? "Server key configured" : "Not configured on server"}
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={llmAllAllowed || p.enabled}
+                    disabled={
+                      llmBusy ||
+                      llmAllAllowed ||
+                      !(org?.role === "owner" || org?.role === "admin")
+                    }
+                    onChange={() => toggleLlmProvider(p.id)}
+                  />
+                </li>
+              ))}
+            </ul>
+            {note && tab === "ai" && (
+              <p className="text-[12.5px] text-[var(--text-secondary)]">{note}</p>
             )}
           </div>
         )}

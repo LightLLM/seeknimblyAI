@@ -264,6 +264,8 @@ create table if not exists public.orgs (
   name text not null,
   created_at timestamptz not null default now()
 );
+-- null = all LLM providers allowed; jsonb array e.g. ["openrouter","ollama"]
+alter table public.orgs add column if not exists allowed_llm_providers jsonb;
 create table if not exists public.org_members (
   id uuid primary key default gen_random_uuid(),
   org_id uuid references public.orgs(id),

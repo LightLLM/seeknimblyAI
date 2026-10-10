@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getOpenAIApiKey } from "@/lib/openai";
+import { requireUser } from "@/lib/api-auth";
+import { getOrgAllowedProviders, isProviderAllowed } from "@/lib/org-llm";
 
 // Keep under Vercel serverless request body limit (4.5 MB)
 const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB
@@ -20,6 +22,20 @@ export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUser(req);
+  if ("error" in auth) return auth.error;
+
+  const allowed = await getOrgAllowedProviders(auth.org.orgId);
+  if (!isProviderAllowed("openai", allowed)) {
+    return NextResponse.json(
+      {
+        error:
+          "File upload to OpenAI is blocked for this workspace. Enable OpenAI under Settings → AI, or paste text instead.",
+      },
+      { status: 403 }
+    );
+  }
+
   const apiKey = getOpenAIApiKey();
   if (!apiKey) {
     return NextResponse.json(

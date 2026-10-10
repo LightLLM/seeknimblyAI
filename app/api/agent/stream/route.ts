@@ -5,6 +5,8 @@ import { getOpenAIApiKey, getOpenAIAgentModel } from "@/lib/openai";
 import { allowRequest, rateLimitKey } from "@/lib/rateLimit";
 import { getAgentSystemPrompt, type AgentParams } from "@/lib/agent-prompts";
 import { AGENT_TOOLS, executeTool, toolRequiresApproval } from "@/lib/agent-tools";
+import { requireUser } from "@/lib/api-auth";
+import { getOrgAllowedProviders, isProviderAllowed } from "@/lib/org-llm";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -56,6 +58,20 @@ function streamLine(ev: StreamEvent): string {
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUser(req);
+  if ("error" in auth) return auth.error;
+
+  const allowedProviders = await getOrgAllowedProviders(auth.org.orgId);
+  if (!isProviderAllowed("openai", allowedProviders)) {
+    return NextResponse.json(
+      {
+        error:
+          "Legacy agent stream uses OpenAI and is blocked for this workspace. Use /app chat with an allowed provider, or enable OpenAI under Settings → AI.",
+      },
+      { status: 403 }
+    );
+  }
+
   const ip = getClientIp(req);
   const key = rateLimitKey(ip, "agent");
 

@@ -13,7 +13,8 @@ import { runAgentLoop, type ChatMessage, type StreamEvent } from "@/lib/agents/r
 import { resolveOrgForEmail } from "@/lib/org";
 import { runWithStoreContext } from "@/lib/store";
 import { isChatModelId } from "@/lib/models";
-import { resolveChatLlm } from "@/lib/llm";
+import { isLlmCreditOrQuotaError, resolveChatLlm, resolveQuotaFallbackLlm } from "@/lib/llm";
+import { getOrgAllowedProviders } from "@/lib/org-llm";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -64,11 +65,15 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
   }
 
   const apiKey = getOpenAIApiKey();
+  const email = String(token.email);
+  const org = await resolveOrgForEmail(email);
+  const allowedProviders = await getOrgAllowedProviders(org.orgId);
+  const llmOpts = { allowedProviders };
   // OpenAI key still preferred for Auto; other providers validated in resolveChatLlm
   const modelId = body.modelId && isChatModelId(body.modelId) ? body.modelId : "auto";
   let llm;
   try {
-    llm = resolveChatLlm(modelId);
+    llm = resolveChatLlm(modelId, llmOpts);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Model not available";
     // If only OpenAI missing and they asked auto with no keys at all:
@@ -79,8 +84,6 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
   }
 
   const { client: openai, model, option } = llm;
-  const email = String(token.email);
-  const org = await resolveOrgForEmail(email);
   const messages: ChatMessage[] = [
     { role: "system", content: agent.getSystemPrompt({ jurisdiction: body.jurisdiction }) },
     ...(body.history ?? []).map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
@@ -104,20 +107,50 @@ export async function POST(req: NextRequest, { params }: { params: { agentId: st
             label: `${agent.label} · ${option.label}`,
             status: "active",
           });
-          await runAgentLoop({
-            agent,
+          const ctx = {
             openai,
             model,
-            messages,
-            ctx: {
+            jurisdiction: body.jurisdiction,
+            userEmail: email,
+            orgId: org.orgId,
+          };
+          try {
+            await runAgentLoop({
+              agent,
               openai,
               model,
-              jurisdiction: body.jurisdiction,
-              userEmail: email,
-              orgId: org.orgId,
-            },
-            emit,
-          });
+              messages,
+              ctx,
+              emit,
+            });
+          } catch (err) {
+            const fallback = isLlmCreditOrQuotaError(err) ? resolveQuotaFallbackLlm(llm, llmOpts) : null;
+            if (!fallback) throw err;
+            const message = err instanceof Error ? err.message : String(err);
+            console.warn(
+              `[api/agents/${agent.id}/stream] ${llm.provider} credit/quota error; falling back to OpenRouter:`,
+              message
+            );
+            emit({
+              type: "step",
+              id: "llm-fallback",
+              label: `OpenAI out of credits — retrying via ${fallback.option.label}…`,
+              status: "active",
+            });
+            const fbCtx = {
+              ...ctx,
+              openai: fallback.client,
+              model: fallback.model,
+            };
+            await runAgentLoop({
+              agent,
+              openai: fallback.client,
+              model: fallback.model,
+              messages,
+              ctx: fbCtx,
+              emit,
+            });
+          }
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Request failed";

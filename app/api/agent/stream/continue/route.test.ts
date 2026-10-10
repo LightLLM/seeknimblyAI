@@ -1,6 +1,24 @@
 import { POST } from "@/app/api/agent/stream/continue/route";
 import { NextRequest } from "next/server";
 
+jest.mock("@/lib/rateLimit", () => ({
+  allowRequest: jest.fn(async () => true),
+  rateLimitKey: jest.fn((_ip: string, route: string) => `key:${route}`),
+}));
+
+jest.mock("@/lib/api-auth", () => ({
+  requireUser: jest.fn(),
+}));
+
+jest.mock("@/lib/org-llm", () => ({
+  getOrgAllowedProviders: jest.fn(async () => null),
+  isProviderAllowed: jest.fn(() => true),
+}));
+
+import { requireUser } from "@/lib/api-auth";
+
+const mockRequireUser = requireUser as jest.MockedFunction<typeof requireUser>;
+
 const origEnv = process.env;
 
 function buildRequest(body: unknown): NextRequest {
@@ -19,10 +37,24 @@ describe("POST /api/agent/stream/continue", () => {
   beforeEach(() => {
     process.env = { ...origEnv };
     process.env.OPENAI_API_KEY = "sk-test-key";
+    mockRequireUser.mockResolvedValue({
+      email: "admin@example.com",
+      org: { orgId: "org-1", email: "admin@example.com", role: "owner", orgName: "Test" },
+    });
   });
 
   afterEach(() => {
     process.env = origEnv;
+  });
+
+  it("returns 401 when unauthenticated", async () => {
+    const { NextResponse } = await import("next/server");
+    mockRequireUser.mockResolvedValue({
+      error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+    });
+    const req = buildRequest({ continuation: "e30=", approved_tool_call_ids: [] });
+    const res = await POST(req);
+    expect(res.status).toBe(401);
   });
 
   it("returns 400 when continuation is missing", async () => {

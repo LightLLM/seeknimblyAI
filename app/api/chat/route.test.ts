@@ -1,6 +1,14 @@
 import { POST } from "@/app/api/chat/route";
 import { NextRequest } from "next/server";
 
+jest.mock("@/lib/api-auth", () => ({
+  requireUser: jest.fn(),
+}));
+
+import { requireUser } from "@/lib/api-auth";
+
+const mockRequireUser = requireUser as jest.MockedFunction<typeof requireUser>;
+
 function buildRequest(body: unknown): NextRequest {
   return new NextRequest("http://localhost:3000/api/chat", {
     method: "POST",
@@ -10,6 +18,23 @@ function buildRequest(body: unknown): NextRequest {
 }
 
 describe("POST /api/chat", () => {
+  beforeEach(() => {
+    mockRequireUser.mockResolvedValue({
+      email: "admin@example.com",
+      org: { orgId: "org-1", email: "admin@example.com", role: "owner", orgName: "Test" },
+    });
+  });
+
+  it("returns 401 when unauthenticated", async () => {
+    const { NextResponse } = await import("next/server");
+    mockRequireUser.mockResolvedValue({
+      error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+    });
+    const req = buildRequest({ message: "I need to hire 5 engineers" });
+    const res = await POST(req);
+    expect(res.status).toBe(401);
+  });
+
   it("returns suggestedAgent and reason for valid message", async () => {
     const req = buildRequest({ message: "I need to hire 5 engineers" });
     const res = await POST(req);

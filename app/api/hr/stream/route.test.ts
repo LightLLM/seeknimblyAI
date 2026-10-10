@@ -8,6 +8,21 @@ jest.mock("@/lib/rateLimit", () => ({
   rateLimitKey: jest.fn((_ip: string, route: string) => `key:${route}`),
 }));
 
+jest.mock("@/lib/api-auth", () => ({
+  requireUser: jest.fn(),
+}));
+
+jest.mock("@/lib/org-llm", () => ({
+  getOrgAllowedProviders: jest.fn(async () => null),
+  isProviderAllowed: jest.fn(() => true),
+}));
+
+import { requireUser } from "@/lib/api-auth";
+import { isProviderAllowed } from "@/lib/org-llm";
+
+const mockRequireUser = requireUser as jest.MockedFunction<typeof requireUser>;
+const mockIsProviderAllowed = isProviderAllowed as jest.MockedFunction<typeof isProviderAllowed>;
+
 const LONG_CONTENT = "x".repeat(8001);
 
 function buildRequest(body: unknown): NextRequest {
@@ -19,6 +34,31 @@ function buildRequest(body: unknown): NextRequest {
 }
 
 describe("POST /api/hr/stream", () => {
+  beforeEach(() => {
+    mockRequireUser.mockResolvedValue({
+      email: "admin@example.com",
+      org: { orgId: "org-1", email: "admin@example.com", role: "owner", orgName: "Test" },
+    });
+    mockIsProviderAllowed.mockReturnValue(true);
+  });
+
+  it("returns 401 when unauthenticated", async () => {
+    const { NextResponse } = await import("next/server");
+    mockRequireUser.mockResolvedValue({
+      error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+    });
+    const req = buildRequest({ message: "hi", jurisdiction: "NA" });
+    const res = await POST(req);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 when OpenAI is blocked for the org", async () => {
+    mockIsProviderAllowed.mockReturnValue(false);
+    const req = buildRequest({ message: "hi", jurisdiction: "NA" });
+    const res = await POST(req);
+    expect(res.status).toBe(403);
+  });
+
   it("accepts history with item content exceeding 8000 chars (truncated server-side)", async () => {
     const req = buildRequest({
       message: "follow-up question",
@@ -29,13 +69,11 @@ describe("POST /api/hr/stream", () => {
       ],
     });
     const res = await POST(req);
-    // Must not return 400 for "String must contain at most 8000 character(s)"
     expect(res.status).not.toBe(400);
     if (res.status === 400) {
       const data = (await res.json()) as { error?: string };
       expect(data.error).not.toMatch(/8000|at most.*character/i);
     }
-    // Without API key we get 500; with key we'd get stream. Either way not 400.
     expect([200, 500]).toContain(res.status);
   });
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { routeMessage } from "@/lib/agents/router";
+import { requireUser } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +15,9 @@ const BODY_SCHEMA = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUser(req);
+  if ("error" in auth) return auth.error;
+
   let body: z.infer<typeof BODY_SCHEMA>;
   try {
     const raw = await req.json();

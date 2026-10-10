@@ -15,6 +15,8 @@ import { getOpenAIApiKey, getOpenAIAgentModel } from "@/lib/openai";
 import { allowRequest, rateLimitKey } from "@/lib/rateLimit";
 import { chooseAgent, type AgentId } from "@/lib/agentRouter";
 import { getChatModelOption, isChatModelId } from "@/lib/models";
+import { requireUser } from "@/lib/api-auth";
+import { getOrgAllowedProviders, isProviderAllowed } from "@/lib/org-llm";
 
 // Node runtime: more reliable for OpenAI streaming than Edge (avoids timeout/parsing issues)
 export const runtime = "nodejs";
@@ -62,6 +64,20 @@ function streamLine(ev: StreamEvent): string {
 const DISCLAIMER = "Not legal advice.";
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUser(req);
+  if ("error" in auth) return auth.error;
+
+  const allowedProviders = await getOrgAllowedProviders(auth.org.orgId);
+  if (!isProviderAllowed("openai", allowedProviders)) {
+    return NextResponse.json(
+      {
+        error:
+          "This compliance document path uses OpenAI and is blocked for this workspace. Enable OpenAI under Settings → AI, or use the main agent chat with an allowed provider.",
+      },
+      { status: 403 }
+    );
+  }
+
   const ip = getClientIp(req);
   const key = rateLimitKey(ip, "hr");
 

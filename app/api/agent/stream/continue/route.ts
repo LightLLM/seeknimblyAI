@@ -5,6 +5,8 @@ import { getOpenAIApiKey, getOpenAIAgentModel } from "@/lib/openai";
 import { allowRequest, rateLimitKey } from "@/lib/rateLimit";
 import { getAgentSystemPrompt, type AgentParams } from "@/lib/agent-prompts";
 import { AGENT_TOOLS, executeTool, toolRequiresApproval } from "@/lib/agent-tools";
+import { requireUser } from "@/lib/api-auth";
+import { getOrgAllowedProviders, isProviderAllowed } from "@/lib/org-llm";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -74,6 +76,20 @@ const BODY_SCHEMA = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUser(req);
+  if ("error" in auth) return auth.error;
+
+  const allowedProviders = await getOrgAllowedProviders(auth.org.orgId);
+  if (!isProviderAllowed("openai", allowedProviders)) {
+    return NextResponse.json(
+      {
+        error:
+          "Legacy agent continue uses OpenAI and is blocked for this workspace. Enable OpenAI under Settings → AI, or use the main agent chat.",
+      },
+      { status: 403 }
+    );
+  }
+
   const ip = getClientIp(req);
   const key = rateLimitKey(ip, "agent");
 
