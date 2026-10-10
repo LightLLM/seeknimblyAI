@@ -84,4 +84,4 @@ npm run test:eval
 
 Deploy on Vercel with the same env vars. Cron schedules live in `vercel.json`.
 
-See `REQUIREMENTS.md` for the full functional spec and `IMPROVEMENTS.md` for the roadmap.
+See `REQUIREMENTS.md` for the full functional spec, `MANUFACTURING.md` for the Workday/Dayforce-for-plants roadmap, and `IMPROVEMENTS.md` for the coded checklist.

@@ -4,7 +4,11 @@
 
 ## 1. Product vision
 
-Seeknimbly is a full-stack agentic HR platform for SMBs (10–150 employees): autonomous agents that *complete* HR work — recruiting, onboarding, training, compliance — with the client approving at defined gates. Primary market: Canadian SMBs (ON, BC, AB, QC first); US expansion supported. The company also runs its own growth on the same agent runtime (lead-gen, sales, client onboarding).
+Seeknimbly is a full-stack agentic HR platform: autonomous agents that *complete* HR work — recruiting, onboarding, training, compliance — with the client approving at defined gates.
+
+**Strategic focus (2026+): Manufacturing.** Become the Workday/Dayforce-class people + workforce layer for mid-market plants (50–500 employees first), sitting on top of existing HCM/payroll via StackOne while owning plant staffing, certifications, OH&S, and audit-ready automation. See `MANUFACTURING.md` for the phased roadmap and coded skill packs (`*.manufacturing` in `lib/agents/skill-packs.ts`, domain data in `lib/manufacturing/catalog.ts`).
+
+Primary geographies: Canadian plants (ON, BC, AB, QC first); US Midwest expansion. Secondary: general SMBs (10–150). The company also runs its own growth on the same agent runtime (lead-gen, sales, client onboarding).
 
 ## 2. Agents
 
@@ -82,6 +86,16 @@ Seeknimbly is a full-stack agentic HR platform for SMBs (10–150 employees): au
 ## 7. Out of scope (this build)
 
 Real email/calendar/job-board/payroll integrations (drafts + booking-link placeholders instead); multi-tenant org model with RLS per client login; performance-review agent (roadmap); mobile apps; SOC2 certification itself (schema and audit trail lay the groundwork).
+
+## 7b. Manufacturing roadmap (see MANUFACTURING.md)
+
+| Phase | Theme | Outcome |
+|-------|--------|---------|
+| 0 | Focus | Mfg skill packs + ICP freeze + design partners |
+| 1 | Wedge | Plant fields, HCM sync, HR desk digest — beside Dayforce/Workday |
+| 2 | Workforce | Time/attendance lite, open shifts, OT/classification |
+| 3 | System of record | Core HRIS, selective payroll, multi-site, SOC2 |
+| 4 | Platform | Plant analytics, PE/channel scale |
 
 ## 8. Success metrics (instrument from day one)
 

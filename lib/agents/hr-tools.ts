@@ -8,6 +8,13 @@ import { logAudit } from "@/lib/audit";
 import { makeTool, str, num, createDraft, demoNote } from "@/lib/agents/tool-helpers";
 import type { AgentTool } from "@/lib/agents/types";
 import { executeTool as legacyExecuteTool } from "@/lib/agent-tools";
+import {
+  MFG_COMPLIANCE_CALENDAR,
+  MFG_AUDIT_EXTRAS,
+  MFG_ROLES,
+  isManufacturingVertical,
+  manufacturingTrainingForRole,
+} from "@/lib/manufacturing/catalog";
 
 // ---------------------------------------------------------------- Recruiting
 
@@ -412,14 +419,31 @@ const MANDATORY_TRAINING: Record<string, string[]> = {
 export const trainingTools: AgentTool[] = [
   makeTool({
     name: "get_mandatory_training",
-    description: "Province-mandated training items that must be on every learning path.",
-    properties: { province: str("Province code, e.g. ON, BC, AB, QC") },
+    description:
+      "Province-mandated training items that must be on every learning path. Pass role and/or vertical=manufacturing for plant-floor cert packs (forklift, LOTO, WHMIS).",
+    properties: {
+      province: str("Province code, e.g. ON, BC, AB, QC"),
+      role: str("Optional role title or id: operator, forklift, maintenance, supervisor, etc."),
+      vertical: str("Optional: manufacturing | general"),
+    },
     required: ["province"],
     handler: async (args) => {
       const prov = String(args.province).toUpperCase();
+      const provincial =
+        MANDATORY_TRAINING[prov] ?? ["Check the province's OHS body for mandatory items"];
+      const mfg =
+        isManufacturingVertical(String(args.vertical ?? "")) || Boolean(args.role)
+          ? manufacturingTrainingForRole(args.role ? String(args.role) : "operator")
+          : [];
+      const roles =
+        isManufacturingVertical(String(args.vertical ?? "")) || Boolean(args.role)
+          ? MFG_ROLES.map((r) => ({ id: r.id, title: r.title, department: r.department }))
+          : undefined;
       return JSON.stringify({
         province: prov,
-        mandatory: MANDATORY_TRAINING[prov] ?? ["Check the province's OHS body for mandatory items"],
+        mandatory: provincial,
+        manufacturing_role_training: mfg,
+        manufacturing_roles: roles,
         disclaimer: "Verify current requirements with the provincial regulator. This is guidance, not legal advice.",
       });
     },
@@ -622,26 +646,35 @@ If you cannot find an official source, say so clearly.`,
   }),
   makeTool({
     name: "list_compliance_calendar",
-    description: "The recurring Canadian compliance calendar plus open logged events/deadlines.",
-    properties: {},
-    handler: async () => {
+    description:
+      "The recurring Canadian compliance calendar plus open logged events/deadlines. Includes manufacturing OH&S / workers' comp items when vertical=manufacturing.",
+    properties: {
+      vertical: str("Optional: manufacturing | general — adds plant OH&S calendar"),
+    },
+    handler: async (args) => {
       const open = await listRows("compliance_events", { filters: { status: "open" }, limit: 50 });
-      return JSON.stringify({ recurring_calendar: CA_COMPLIANCE_CALENDAR, open_events: open, note: demoNote() });
+      const vertical = String(args.vertical ?? "manufacturing");
+      const includeMfg = vertical.toLowerCase() !== "general";
+      return JSON.stringify({
+        recurring_calendar: CA_COMPLIANCE_CALENDAR,
+        manufacturing_calendar: includeMfg ? MFG_COMPLIANCE_CALENDAR : [],
+        open_events: open,
+        note: demoNote(),
+      });
     },
   }),
   makeTool({
     name: "run_audit_checklist",
-    description: "Return the 12-point SMB compliance audit checklist to run against a client, with the client's context filled in.",
+    description:
+      "Return the 12-point SMB compliance audit checklist (plus manufacturing extras when vertical=manufacturing).",
     properties: {
       client_name: str("Client"),
       provinces: str("Provinces of operation"),
       employee_count: num("Employee count"),
+      vertical: str("Optional: manufacturing | general"),
     },
     handler: async (args) => {
-      return JSON.stringify({
-        client: args.client_name ?? "client",
-        provinces: args.provinces ?? "unknown",
-        checklist: [
+      const base = [
           "1. Payroll: CRA account current, remitter category correct, last remittance on time",
           "2. Employee vs. contractor classification per CRA tests (the classic SMB landmine)",
           "3. Wage floor: everyone at/above current provincial minimum (verify current rates)",
@@ -654,8 +687,18 @@ If you cannot find an official source, say so clearly.`,
           "10. Privacy: employee-data handling meets PIPEDA/Law 25; breach-response plan exists",
           "11. ROE issued within 5 calendar days for any interruption of earnings",
           "12. Postings compliant (BC salary ranges; French in Quebec)",
-        ],
-        instruction: "Score each item pass/gap/unknown, log gaps with log_compliance_event, and produce a scored report. This is guidance, not legal advice.",
+        ];
+      const vertical = String(args.vertical ?? "manufacturing");
+      const checklist =
+        vertical.toLowerCase() === "general" ? base : [...base, ...MFG_AUDIT_EXTRAS];
+      return JSON.stringify({
+        client: args.client_name ?? "client",
+        provinces: args.provinces ?? "unknown",
+        employee_count: args.employee_count ?? null,
+        vertical,
+        checklist,
+        instruction:
+          "Score each item pass/gap/unknown, log gaps with log_compliance_event, and produce a scored report. This is guidance, not legal advice.",
       });
     },
   }),

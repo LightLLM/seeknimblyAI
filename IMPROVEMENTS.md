@@ -16,12 +16,22 @@ Coded roadmap from the data-room critique is shipped, including hardening stages
 - Audit CSV export
 - Versioned skill-pack metadata on `/api/agents`
 
+## Manufacturing vertical (coded)
+
+- Skill packs: `recruiting|onboarding|training|compliance.manufacturing`
+- Catalog: `lib/manufacturing/catalog.ts` (roles, certs, OH&S calendar, audit extras)
+- Tools accept `vertical` / `role` for plant training + audits
+- Roadmap doc: `MANUFACTURING.md`
+
+**Next manufacturing engineering:** plant org fields on jobs/hires, StackOne Dayforce/Workday sync, `hr_cases` + handoff + daily plant digest.
+
 ## Still human / process (not code)
 
 - Counsel completes engagement letter and CASL review
 - Bind E&O policy
 - Configure Stripe Customer Portal products for monthly↔annual switching
+- Freeze GTM to manufacturing plants; land 3 design partners
 
 ## Ops reminder
 
-Re-run `supabase/agents_schema.sql` and `supabase/subscriptions.sql` after pull (org_invites, RLS policies, plan column).
+Re-run `supabase/agents_schema.sql` and `supabase/subscriptions.sql` after pull (org_invites, RLS policies, plan column). Also `supabase/users.sql` for email/password signup.

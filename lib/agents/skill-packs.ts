@@ -47,6 +47,57 @@ export const SKILL_PACKS: SkillPack[] = [
     label: "Lifecycle growth",
     skills: ["icp_score", "outreach_draft", "crm_stages", "casl_limits"],
   },
+  // Manufacturing vertical — Dayforce/Workday wedge for plants
+  {
+    id: "recruiting.manufacturing",
+    version: "1.0.0",
+    agent: "recruiting",
+    label: "Manufacturing recruiting",
+    skills: [
+      "mfg_role_templates",
+      "operator_machine_forklift_roles",
+      "shift_aware_jd",
+      "plant_must_haves_rubric",
+    ],
+  },
+  {
+    id: "onboarding.manufacturing",
+    version: "1.0.0",
+    agent: "onboarding",
+    label: "Manufacturing onboarding",
+    skills: [
+      "plant_orientation_tasks",
+      "ppe_acknowledgement",
+      "dept_cost_center_fields",
+      "pre_floor_safety_gate",
+    ],
+  },
+  {
+    id: "training.manufacturing",
+    version: "1.0.0",
+    agent: "training",
+    label: "Manufacturing training & certs",
+    skills: [
+      "forklift_pit_certs",
+      "loto_training",
+      "whmis_hazcom",
+      "supervisor_ohs_duties",
+      "cert_expiry_plant_floor",
+    ],
+  },
+  {
+    id: "compliance.manufacturing",
+    version: "1.0.0",
+    agent: "compliance",
+    label: "Manufacturing OH&S compliance",
+    skills: [
+      "mfg_ohs_calendar",
+      "jhsc_inspections",
+      "workers_comp_classification",
+      "mfg_audit_extras",
+      "incident_escalation",
+    ],
+  },
 ];
 
 export function skillPacksForAgent(agentId: string): SkillPack[] {

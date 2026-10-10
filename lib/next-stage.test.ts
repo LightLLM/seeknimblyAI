@@ -124,8 +124,14 @@ describe("audit csv + skill packs", () => {
     });
   });
 
-  it("ships versioned skill packs", () => {
+  it("ships versioned skill packs including manufacturing", () => {
     expect(SKILL_PACKS.length).toBeGreaterThanOrEqual(4);
     expect(SKILL_PACKS.every((p) => p.version && p.skills.length > 0)).toBe(true);
+    const mfg = SKILL_PACKS.filter((p) => p.id.includes("manufacturing"));
+    expect(mfg.length).toBeGreaterThanOrEqual(4);
+    expect(mfg.map((p) => p.agent).sort()).toEqual(
+      ["compliance", "onboarding", "recruiting", "training"].sort()
+    );
   });
 });
+
