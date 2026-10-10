@@ -15,10 +15,13 @@ Seven autonomous HR agents behind one chat: Recruiting, Onboarding, Training, Co
 ```bash
 npm install
 cp .env.example .env.local   # set OPENAI_*, NEXTAUTH_*, AUTH_EMAIL/PASSWORD
+# Optional: GOOGLE_CLIENT_*, AZURE_AD_* for social signup
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Landing → trial/sign-in → `/app`.
+Open [http://localhost:3000](http://localhost:3000). Landing → **Get started** (Google / Microsoft / email+password / magic link) → `/app`.
+
+**Auth DB:** run `supabase/users.sql` (or the `app_users` block in `agents_schema.sql`) so email/password accounts persist in Supabase.
 
 **Supabase:** run `supabase/trial_signups.sql`, `supabase/subscriptions.sql`, then **`supabase/agents_schema.sql`** (includes org_id columns, memories, conversations, automations). Without Supabase the app runs in demo mode (in-memory).
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { AuthPanel } from "./AuthPanel";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    SeeknimblyAI — Agentic HR for Founders
@@ -319,11 +320,7 @@ export function LandingPage() {
   const [activeService, setActiveService] = useState(0);
   const [statsRef, statsInView] = useInView(0.3);
   const [trialOpen, setTrialOpen] = useState(false);
-  const [email, setEmail] = useState("");
-  const [companyName, setCompanyName] = useState("");
-  const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const s0 = useCounter(STATS[0].value, 1600, statsInView);
   const s1 = useCounter(STATS[1].value, 1800, statsInView);
@@ -336,34 +333,6 @@ export function LandingPage() {
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-
-  async function handleTrialSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await fetch("/api/trial", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim(),
-          company_name: companyName.trim() || undefined,
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data?.error ?? "Something went wrong. Please try again.");
-        setLoading(false);
-        return;
-      }
-      setSubmitted(true);
-      setTrialOpen(false);
-    } catch {
-      setError("Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
 
   const openTrial = () => setTrialOpen(true);
 
@@ -859,7 +828,7 @@ export function LandingPage() {
       </section>
 
       {/* CTA */}
-      <section style={{ background: C.offWhite, borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, padding: "80px 32px" }}>
+      <section id="get-started" style={{ background: C.offWhite, borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, padding: "80px 32px" }}>
         <div style={{ maxWidth: 600, margin: "0 auto", textAlign: "center" }}>
           <Tag style={{ marginBottom: 20 }}>Get started</Tag>
           <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 40, fontWeight: 900, color: C.black, letterSpacing: "-0.03em", lineHeight: 1.1, marginBottom: 16 }}>
@@ -937,7 +906,7 @@ export function LandingPage() {
         </div>
       </footer>
 
-      {/* Trial modal — 15-day free trial */}
+      {/* Get started — Google / Microsoft / email / magic link */}
       {trialOpen && (
         <div
           style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "rgba(0,0,0,0.6)" }}
@@ -945,73 +914,49 @@ export function LandingPage() {
           role="dialog"
           aria-labelledby="trial-title"
         >
-          <div style={{ width: "100%", maxWidth: 440, background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 32, boxShadow: "0 24px 48px rgba(0,0,0,0.12)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
-              <h2 id="trial-title" style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 700, color: C.black }}>
-                Start your 15-day free trial
-              </h2>
-              <button
-                type="button"
-                onClick={() => { setTrialOpen(false); setError(null); }}
-                style={{ padding: 8, border: "none", background: "none", cursor: "pointer", color: C.mid }}
-                aria-label="Close"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
-              </button>
-            </div>
-            <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, color: C.mid, marginBottom: 24, lineHeight: 1.55 }}>
-              Enter your work email. We’ll send a sign-in link — then you’ll set up payment (no charge for 15 days). Cancel anytime.
-            </p>
-            <form onSubmit={handleTrialSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div>
-                <label htmlFor="trial-email" style={{ display: "block", fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 500, color: C.mid, marginBottom: 6 }}>Work email</label>
-                <input
-                  id="trial-email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  disabled={loading}
-                  style={{ width: "100%", padding: "12px 14px", border: `1px solid ${C.border}`, borderRadius: 4, fontFamily: "'DM Sans', sans-serif", fontSize: 14, color: C.ink }}
-                  placeholder="you@company.com"
-                />
-              </div>
-              <div>
-                <label htmlFor="trial-company" style={{ display: "block", fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 500, color: C.mid, marginBottom: 6 }}>Company name (optional)</label>
-                <input
-                  id="trial-company"
-                  name="company_name"
-                  type="text"
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  disabled={loading}
-                  style={{ width: "100%", padding: "12px 14px", border: `1px solid ${C.border}`, borderRadius: 4, fontFamily: "'DM Sans', sans-serif", fontSize: 14, color: C.ink }}
-                  placeholder="Acme Inc."
-                />
-              </div>
-              {error && <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "#C0392B" }} role="alert">{error}</p>}
-              <button
-                type="submit"
-                disabled={loading}
-                style={{
-                  width: "100%",
-                  padding: "14px",
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: C.white,
-                  background: C.black,
-                  border: `1.5px solid ${C.black}`,
-                  borderRadius: 4,
-                  cursor: loading ? "not-allowed" : "pointer",
-                  opacity: loading ? 0.7 : 1,
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 440,
+              background: "var(--surface)",
+              color: "var(--text)",
+              border: "1px solid var(--border)",
+              borderRadius: 12,
+              padding: 28,
+              boxShadow: "0 24px 48px rgba(0,0,0,0.12)",
+              position: "relative",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setTrialOpen(false)}
+              style={{
+                position: "absolute",
+                top: 16,
+                right: 16,
+                padding: 8,
+                border: "none",
+                background: "none",
+                cursor: "pointer",
+                color: "var(--text-secondary)",
+              }}
+              aria-label="Close"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+            <div id="trial-title">
+              <AuthPanel
+                title="Start your 15-day free trial"
+                subtitle="Continue with Google, Microsoft, or email. Then add a payment method — no charge for 15 days."
+                showLoginLink
+                onMagicLinkSent={() => {
+                  setSubmitted(true);
+                  setTrialOpen(false);
                 }}
-              >
-                {loading ? "Sending…" : "Get trial link →"}
-              </button>
-            </form>
+              />
+            </div>
           </div>
         </div>
       )}

@@ -266,6 +266,19 @@ create table if not exists public.orgs (
 );
 -- null = all LLM providers allowed; jsonb array e.g. ["openrouter","ollama"]
 alter table public.orgs add column if not exists allowed_llm_providers jsonb;
+
+-- Email/password + OAuth accounts (NextAuth). Not Supabase Auth's auth.users.
+create table if not exists public.app_users (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  password_hash text,
+  name text,
+  providers jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_app_users_email on public.app_users (email);
+alter table public.app_users enable row level security;
 create table if not exists public.org_members (
   id uuid primary key default gen_random_uuid(),
   org_id uuid references public.orgs(id),
